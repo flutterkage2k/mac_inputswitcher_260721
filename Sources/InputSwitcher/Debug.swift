@@ -5,6 +5,10 @@ import Foundation
 func dbg(_ msg: String) {
     let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/InputSwitcher.log")
+    // 무한 증식 방지: 1MB 넘으면 새로 시작
+    if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 1_000_000 {
+        try? FileManager.default.removeItem(at: url)
+    }
     let ts = ISO8601DateFormatter().string(from: Date())
     let line = "\(ts) \(msg)\n"
     if let h = try? FileHandle(forWritingTo: url) {
