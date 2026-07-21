@@ -22,6 +22,9 @@ final class SystemInputSourceAPI: InputSourceAPI {
     /// 돌려준다. 이 포커스 사이클이 있어야 백그라운드에서의 CJKV 전환이 실제 적용된다.
     func commitSelection(waitMS: UInt64) async {
         guard waitMS > 0 else { return }
+        // Spotlight 같은 일시 패널은 포커스를 잃는 순간 닫히므로 커밋을 생략한다.
+        // 패널 자체가 key인 상황에서는 plain select만으로 전환이 적용된다.
+        guard !transientPanelIsOpen() else { return }
         let screen = NSScreen.main?.visibleFrame ?? .zero
         let window = NSWindow(
             contentRect: NSRect(x: screen.maxX - 11, y: screen.minY + 8, width: 3, height: 3),
@@ -54,8 +57,14 @@ final class SystemInputSourceAPI: InputSourceAPI {
     /// 시스템 "입력 메뉴에서 다음 소스 선택" 단축키(symbolic hotkey 61)를 에뮬레이션.
     /// CGEvent 포스트는 접근성 권한 필요 — 폴백 발동 시에만 요청 프롬프트가 뜬다.
     func postSystemSwitchShortcut() {
-        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        guard AXIsProcessTrustedWithOptions(opts) else { return }
+        let trusted: Bool
+        if transientPanelIsOpen() {
+            trusted = AXIsProcessTrusted() // 권한 프롬프트가 패널을 닫으므로 금지
+        } else {
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            trusted = AXIsProcessTrustedWithOptions(opts)
+        }
+        guard trusted else { return }
         let (keyCode, flags) = systemSwitchShortcut()
         let source = CGEventSource(stateID: .hidSystemState)
         for down in [true, false] {
@@ -92,5 +101,13 @@ final class SystemInputSourceAPI: InputSourceAPI {
     private func languages(_ src: TISInputSource) -> [String] {
         guard let ptr = TISGetInputSourceProperty(src, kTISPropertyInputSourceLanguages) else { return [] }
         return Unmanaged<CFArray>.fromOpaque(ptr).takeUnretainedValue() as? [String] ?? []
+    }
+
+    /// 포커스를 잃으면 닫히는 일시 패널(Spotlight)이 떠 있는가.
+    /// Spotlight은 닫혀 있으면 on-screen 창이 0개이므로 소유 창 존재 = 열림.
+    // ponytail: Spotlight만 감지. Raycast/Alfred 등도 필요해지면 이름 추가.
+    private func transientPanelIsOpen() -> Bool {
+        let list = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        return list.contains { ($0[kCGWindowOwnerName as String] as? String) == "Spotlight" }
     }
 }
