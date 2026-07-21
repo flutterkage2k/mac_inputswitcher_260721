@@ -16,9 +16,9 @@ final class HUD {
         self.panel = panel
         panel.contentView = content
         let screen = NSScreen.main?.visibleFrame ?? .zero
-        // macOS 볼륨 OSD처럼 중앙 하단부에 표시
+        // 화면 정중앙에 표시
         panel.setFrame(NSRect(x: screen.midX - size.width / 2,
-                              y: screen.minY + screen.height * 0.16,
+                              y: screen.midY - size.height / 2,
                               width: size.width, height: size.height), display: true)
         panel.alphaValue = 1
         panel.orderFrontRegardless()
@@ -52,10 +52,14 @@ final class HUD {
 private struct HUDView: View {
     let text: String
     var body: some View {
+        // 볼륨 OSD 스타일: 어두운 반투명 배경 + 흰 글자 — 어떤 화면 위에서도 잘 읽힘
         Text(text)
             .font(.system(size: 20, weight: .semibold))
-            .padding(.horizontal, 22)
-            .padding(.vertical, 12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
+            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+            .padding(16) // 그림자 잘림 방지 여백
     }
 }
