@@ -3,16 +3,13 @@ import SwiftUI
 @main
 struct InputSwitcherApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
+    @StateObject private var state = AppState()
 
     var body: some Scene {
-        MenuBarExtra("InputSwitcher", systemImage: "keyboard") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("InputSwitcher 준비됨")
-                Divider()
-                Button("종료") { NSApp.terminate(nil) }
-            }
-            .padding(12)
-            .frame(width: 320)
+        // 전환이 폴백까지 실패하면 아이콘으로만 조용히 표시 (알림 스팸 없음)
+        MenuBarExtra("InputSwitcher",
+                     systemImage: state.lastSwitchFailed ? "keyboard.badge.ellipsis" : "keyboard") {
+            SettingsView(state: state)
         }
         .menuBarExtraStyle(.window)
     }
@@ -20,7 +17,6 @@ struct InputSwitcherApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // bare SPM 실행파일이 Dock에 뜨지 않도록
         NSApp.setActivationPolicy(.accessory)
     }
 }
