@@ -47,7 +47,13 @@ struct SettingsView: View {
                 }
             ))
             .toggleStyle(.checkbox)
-            Button("종료") { NSApp.terminate(nil) }
+            HStack {
+                Button("종료") { NSApp.terminate(nil) }
+                Spacer()
+                Text("v\(appVersion) · 2026.07.22 · @kage2k")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(12)
         .frame(width: 320)
@@ -55,6 +61,10 @@ struct SettingsView: View {
         .onAppear { state.refreshCurrent() }
     }
 }
+
+/// 번들 실행 시 Info.plist 버전, `swift run` 등 bare 실행 시 "dev".
+private let appVersion =
+    Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
 
 /// recordingFor가 설정된 동안 로컬 keyDown을 가로채 단축키로 저장한다.
 struct KeyRecorder: NSViewRepresentable {
