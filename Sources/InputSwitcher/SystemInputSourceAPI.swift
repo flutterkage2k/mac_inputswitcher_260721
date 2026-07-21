@@ -118,6 +118,12 @@ final class SystemInputSourceAPI: InputSourceAPI {
     /// - Raycast/Alfred류 런처: accessory 앱이 frontmost가 된 상태로 감지.
     /// - Spotlight: activate 없이 key만 가지므로 소유 on-screen 창 존재로 감지
     ///   (닫혀 있으면 0개임을 실측 확인).
+    /// Spotlight/Raycast류는 자체 단축키로 열면 앱 활성화 없이 key만 가져가므로
+    /// frontmost로는 감지할 수 없다. 이들은 닫혀 있으면 on-screen 창이 0개라는
+    /// 실측 사실을 이용해 "소유 창 존재 = 패널 열림"으로 감지한다.
+    // ponytail: 이름 목록 방식. 다른 런처가 필요해지면 이름 추가.
+    private static let panelOwners: Set<String> = ["Spotlight", "Raycast", "Alfred"]
+
     private func transientPanelIsOpen() -> Bool {
         let front = NSWorkspace.shared.frontmostApplication
         if let front, front.activationPolicy != .regular {
@@ -125,8 +131,14 @@ final class SystemInputSourceAPI: InputSourceAPI {
             return true
         }
         let list = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
-        let spotlight = list.contains { ($0[kCGWindowOwnerName as String] as? String) == "Spotlight" }
-        dbg("panel?: \(spotlight ? "yes(Spotlight)" : "no") — frontmost=\(front?.localizedName ?? "?") policy=\(front?.activationPolicy.rawValue ?? -1)")
-        return spotlight
+        let hit = list.first { w in
+            guard let owner = w[kCGWindowOwnerName as String] as? String,
+                  Self.panelOwners.contains(owner) else { return false }
+            // 설정 창 같은 일반(layer 0) 창은 제외 — 패널은 elevated layer에 뜬다 (Raycast=8)
+            return owner == "Spotlight" || (w[kCGWindowLayer as String] as? Int ?? 0) > 0
+        }
+        let owner = hit?[kCGWindowOwnerName as String] as? String
+        dbg("panel?: \(owner.map { "yes(\($0))" } ?? "no") — frontmost=\(front?.localizedName ?? "?") policy=\(front?.activationPolicy.rawValue ?? -1)")
+        return hit != nil
     }
 }
