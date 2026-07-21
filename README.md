@@ -12,14 +12,20 @@
 
 - **개인 프로젝트입니다.** 어떠한 보증 없이 "있는 그대로" 제공되며, 사용으로 인한
   문제(입력소스 설정 변경, 데이터 입력 오류 등)에 대해 개발자는 책임지지 않습니다.
-- 이 앱은 **Apple 공증(notarization)을 받지 않았습니다.** 직접 빌드해서 쓰는 것을
-  권장하며, 빌드된 앱을 내려받아 실행하면 macOS Gatekeeper 경고가 뜹니다 (아래 참고).
 - CJK 전환 시 화면 우하단에 아주 작은 창이 잠깐(기본 150ms) 나타났다 사라집니다.
   이것은 macOS 버그 우회를 위한 **정상 동작**입니다.
 - 폴백 경로에서만 접근성 권한을 요청합니다. 기본 동작에는 아무 권한도 필요 없습니다.
 - macOS 14 (Sonoma) 이상, Apple Silicon/Intel. macOS 26 (Tahoe)에서 개발·테스트됨.
 
-## 설치 (소스 빌드 — 권장)
+## 설치
+
+### 다운로드 (권장)
+
+[**Releases**](https://github.com/flutterkage2k/mac_inputswitcher_260721/releases)에서
+최신 zip을 받아 압축 해제 후 `InputSwitcher.app`을 응용 프로그램 폴더로 옮기면 끝.
+**Developer ID 서명 + Apple 공증(notarized)** 완료 상태라 Gatekeeper 경고 없이 실행됩니다.
+
+### 소스 빌드
 
 Xcode Command Line Tools만 있으면 됩니다.
 
@@ -30,10 +36,6 @@ cd mac_inputswitcher_260721
 cp -Rf build/InputSwitcher.app /Applications/
 open /Applications/InputSwitcher.app
 ```
-
-빌드된 .app을 내려받아 쓰는 경우 Gatekeeper가 차단하면:
-앱을 **우클릭 → 열기**, 또는 터미널에서
-`xattr -d com.apple.quarantine /Applications/InputSwitcher.app`
 
 ## 사용법
 
@@ -56,7 +58,8 @@ InputSwitcher는 select 후 **포커스 커밋** — 앱이 잠깐 key가 됐다
   `defaults write dev.heesung.InputSwitcher verifyDelayMS -int 100`
   낮추면 빨라지지만 전환이 씹힐 수 있습니다. 변경은 앱 재시작 후 적용됩니다.
 - 진단 로그: `~/Library/Logs/InputSwitcher.log` (1MB 상한). 문제 리포트 시 첨부해 주세요.
-- 로컬(adhoc) 서명 특성상 재빌드 후에는 접근성 권한(폴백용)을 다시 요청할 수 있습니다.
+- 소스 빌드(adhoc 서명)의 경우 재빌드 후 접근성 권한(폴백용)을 다시 요청할 수 있습니다.
+  Releases의 공증본은 해당 없음.
 - "로그인 시 시작"은 .app 번들로 실행할 때만 동작합니다 (`swift run`에서는 무시됨).
 
 ## 개발
@@ -64,7 +67,8 @@ InputSwitcher는 select 후 **포커스 커밋** — 앱이 잠깐 key가 됐다
 ```bash
 swift build   # 빌드
 swift test    # 단위 테스트 (13개)
-./scripts/bundle.sh  # .app 번들 생성 (adhoc 서명)
+./scripts/bundle.sh   # .app 번들 생성 (adhoc 서명, 로컬용)
+./scripts/release.sh  # Developer ID 서명 + 공증 + 배포 zip (메인테이너용)
 ```
 
 ## 라이선스
