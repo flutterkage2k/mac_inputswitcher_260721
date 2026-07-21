@@ -1,15 +1,20 @@
 import XCTest
 @testable import InputSwitcher
 
+@MainActor
 final class MockAPI: InputSourceAPI {
     var current: String? = "en"
     /// select 호출이 이 횟수를 넘어야 실제 반영됨 (0 = 즉시 성공, 99 = select로는 불가)
     var selectSucceedsAfter = 0
-    private var selectCalls = 0
-    var sources = [InputSource(id: "en", name: "ABC"), InputSource(id: "ko", name: "한글")]
+    private(set) var selectCalls = 0
+    var sources = [
+        InputSource(id: "en", name: "ABC"),
+        InputSource(id: "ko", name: "한글", isCJKV: true),
+    ]
     var cycleOrder = ["en", "ko"]
     private var cycleIndex = 0
     private(set) var postShortcutCalls = 0
+    private(set) var commitCalls = 0
 
     func currentSourceID() -> String? { current }
     @discardableResult func select(_ id: String) -> Bool {
@@ -18,6 +23,7 @@ final class MockAPI: InputSourceAPI {
         return true
     }
     func selectableSources() -> [InputSource] { sources }
+    func commitSelection(waitMS: UInt64) async { commitCalls += 1 }
     func postSystemSwitchShortcut() {
         postShortcutCalls += 1
         cycleIndex = (cycleIndex + 1) % cycleOrder.count
@@ -25,6 +31,7 @@ final class MockAPI: InputSourceAPI {
     }
 }
 
+@MainActor
 final class SwitcherTests: XCTestCase {
     private func makeSwitcher(_ api: MockAPI) -> Switcher {
         Switcher(api: api, verifyDelayMS: 0)
@@ -35,6 +42,28 @@ final class SwitcherTests: XCTestCase {
         let ok = await makeSwitcher(api).switchTo("ko")
         XCTAssertTrue(ok)
         XCTAssertEqual(api.current, "ko")
+    }
+
+    func test_이미_현재_소스면_select_없이_성공() async {
+        let api = MockAPI()
+        let ok = await makeSwitcher(api).switchTo("en")
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.selectCalls, 0)
+    }
+
+    func test_CJKV_전환은_포커스_커밋을_호출한다() async {
+        let api = MockAPI()
+        let ok = await makeSwitcher(api).switchTo("ko")
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.commitCalls, 1)
+    }
+
+    func test_비CJKV_전환은_포커스_커밋을_호출하지_않는다() async {
+        let api = MockAPI()
+        api.sources.append(InputSource(id: "fr", name: "French"))
+        let ok = await makeSwitcher(api).switchTo("fr")
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.commitCalls, 0)
     }
 
     func test_재시도로_성공() async {

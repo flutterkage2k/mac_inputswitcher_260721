@@ -1,6 +1,7 @@
 import XCTest
 @testable import InputSwitcher
 
+@MainActor
 final class SystemAPISmokeTests: XCTestCase {
     func test_실제_소스목록과_현재소스_조회() {
         let api = SystemInputSourceAPI()

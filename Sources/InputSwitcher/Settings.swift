@@ -28,7 +28,8 @@ final class Settings {
     var verifyDelayMS: UInt64 {
         get {
             let v = defaults.integer(forKey: delayKey)
-            return v > 0 ? UInt64(v) : 30
+            // 기본 150ms: macOS 26 (Tahoe)에서 CJKV 포커스-커밋이 안정되는 최소값 (macism 동일)
+            return v > 0 ? UInt64(v) : 150
         }
         set { defaults.set(Int(newValue), forKey: delayKey) }
     }

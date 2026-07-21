@@ -21,8 +21,8 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(Settings(defaults: defaults).mappings.isEmpty)
     }
 
-    func test_verifyDelay_기본값_30() {
-        XCTAssertEqual(Settings(defaults: defaults).verifyDelayMS, 30)
+    func test_verifyDelay_기본값_150() {
+        XCTAssertEqual(Settings(defaults: defaults).verifyDelayMS, 150)
     }
 
     func test_verifyDelay_저장() {

@@ -1,6 +1,7 @@
 import Carbon
 import AppKit
 
+@MainActor
 final class SystemInputSourceAPI: InputSourceAPI {
     func selectableSources() -> [InputSource] {
         let filter = [kTISPropertyInputSourceCategory as String: kTISCategoryKeyboardInputSource as Any] as CFDictionary
@@ -11,8 +12,30 @@ final class SystemInputSourceAPI: InputSourceAPI {
             guard boolProp(src, kTISPropertyInputSourceIsSelectCapable),
                   let id = stringProp(src, kTISPropertyInputSourceID),
                   let name = stringProp(src, kTISPropertyLocalizedName) else { return nil }
-            return InputSource(id: id, name: name)
+            let lang = languages(src).first ?? ""
+            let isCJKV = lang == "ko" || lang == "ja" || lang == "vi" || lang.hasPrefix("zh")
+            return InputSource(id: id, name: name, isCJKV: isCJKV)
         }
+    }
+
+    /// CJKV 커밋: 작은 창을 띄워 잠깐 key/active가 됐다가 숨어서 이전 앱으로 포커스를
+    /// 돌려준다. 이 포커스 사이클이 있어야 백그라운드에서의 CJKV 전환이 실제 적용된다.
+    func commitSelection(waitMS: UInt64) async {
+        guard waitMS > 0 else { return }
+        let screen = NSScreen.main?.visibleFrame ?? .zero
+        let window = NSWindow(
+            contentRect: NSRect(x: screen.maxX - 11, y: screen.minY + 8, width: 3, height: 3),
+            styleMask: [.titled], // titled가 아니면 key window가 될 수 없음
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        window.level = .screenSaver
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        try? await Task.sleep(nanoseconds: waitMS * 1_000_000)
+        window.orderOut(nil)
+        NSApp.hide(nil) // accessory 앱이 숨으면 이전 앱으로 포커스가 복귀한다
     }
 
     func currentSourceID() -> String? {
@@ -64,5 +87,10 @@ final class SystemInputSourceAPI: InputSourceAPI {
     private func stringProp(_ src: TISInputSource, _ key: CFString) -> String? {
         guard let ptr = TISGetInputSourceProperty(src, key) else { return nil }
         return Unmanaged<CFString>.fromOpaque(ptr).takeUnretainedValue() as String
+    }
+
+    private func languages(_ src: TISInputSource) -> [String] {
+        guard let ptr = TISGetInputSourceProperty(src, kTISPropertyInputSourceLanguages) else { return [] }
+        return Unmanaged<CFArray>.fromOpaque(ptr).takeUnretainedValue() as? [String] ?? []
     }
 }
