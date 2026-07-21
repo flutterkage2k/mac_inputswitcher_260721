@@ -23,7 +23,7 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                             .accessibilityLabel("단축키 삭제")
                     }
-                    Button(state.recordingFor == source.id ? "취소" : "녹화") {
+                    Button(state.recordingFor == source.id ? "취소" : "단축키설정") {
                         state.recordingFor = state.recordingFor == source.id ? nil : source.id
                     }
                 }
