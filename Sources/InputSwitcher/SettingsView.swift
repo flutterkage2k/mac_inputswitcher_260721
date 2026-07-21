@@ -1,5 +1,6 @@
 import SwiftUI
 import Carbon.HIToolbox
+import ServiceManagement
 
 struct SettingsView: View {
     @ObservedObject var state: AppState
@@ -37,6 +38,13 @@ struct SettingsView: View {
                 }
             }
             Divider()
+            Toggle("로그인 시 시작", isOn: Binding(
+                get: { SMAppService.mainApp.status == .enabled },
+                set: { on in
+                    try? on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
+                }
+            ))
+            .toggleStyle(.checkbox)
             Button("종료") { NSApp.terminate(nil) }
         }
         .padding(12)
