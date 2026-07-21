@@ -26,12 +26,14 @@ final class Switcher {
         for _ in 0..<2 {
             api.select(id)
             try? await Task.sleep(nanoseconds: verifyDelayMS * 1_000_000)
+            if Task.isCancelled { return true }
             if api.currentSourceID() == id { return true }
         }
         // 폴백: 시스템 "다음 소스 선택" 단축키로 순환. 소스 개수만큼만 시도.
         for _ in 0..<max(1, api.selectableSources().count) {
             api.postSystemSwitchShortcut()
             try? await Task.sleep(nanoseconds: verifyDelayMS * 1_000_000)
+            if Task.isCancelled { return true }
             if api.currentSourceID() == id { return true }
         }
         return false

@@ -9,6 +9,7 @@ final class MockAPI: InputSourceAPI {
     var sources = [InputSource(id: "en", name: "ABC"), InputSource(id: "ko", name: "한글")]
     var cycleOrder = ["en", "ko"]
     private var cycleIndex = 0
+    private(set) var postShortcutCalls = 0
 
     func currentSourceID() -> String? { current }
     @discardableResult func select(_ id: String) -> Bool {
@@ -18,6 +19,7 @@ final class MockAPI: InputSourceAPI {
     }
     func selectableSources() -> [InputSource] { sources }
     func postSystemSwitchShortcut() {
+        postShortcutCalls += 1
         cycleIndex = (cycleIndex + 1) % cycleOrder.count
         current = cycleOrder[cycleIndex]
     }
@@ -56,5 +58,16 @@ final class SwitcherTests: XCTestCase {
         api.cycleOrder = ["en", "fr"] // 순환 목록에 목표가 없음
         let ok = await makeSwitcher(api).switchTo("ko")
         XCTAssertFalse(ok)
+    }
+
+    func test_취소된_전환은_폴백에_진입하지_않는다() async {
+        let api = MockAPI()
+        api.selectSucceedsAfter = 99 // select로는 절대 안 됨 → 폴백 직행 경로
+        let switcher = Switcher(api: api, verifyDelayMS: 50)
+        let task = Task { await switcher.switchTo("ko") }
+        try? await Task.sleep(nanoseconds: 10_000_000) // 첫 검증 대기 도중 취소
+        task.cancel()
+        _ = await task.value
+        XCTAssertEqual(api.postShortcutCalls, 0)
     }
 }

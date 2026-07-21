@@ -18,6 +18,7 @@ final class AppState: ObservableObject {
     private let settings = Settings()
     private let hotkeys = HotkeyManager()
     private lazy var switcher = Switcher(api: api, verifyDelayMS: settings.verifyDelayMS)
+    private var switchTask: Task<Void, Never>?
 
     init() {
         sources = api.selectableSources()
@@ -34,9 +35,13 @@ final class AppState: ObservableObject {
             guard sources.contains(where: { $0.id == sourceID }) else { continue }
             let ok = hotkeys.register(combo) { [weak self] in
                 guard let self else { return }
-                Task { @MainActor in
-                    self.lastSwitchFailed = !(await self.switcher.switchTo(sourceID))
-                    self.currentID = self.api.currentSourceID()
+                self.switchTask?.cancel()
+                self.switchTask = Task { @MainActor in
+                    let ok = await self.switcher.switchTo(sourceID)
+                    if !Task.isCancelled {
+                        self.lastSwitchFailed = !ok
+                        self.currentID = self.api.currentSourceID()
+                    }
                 }
             }
             if !ok { failedRegistrations.insert(sourceID) }
@@ -45,6 +50,8 @@ final class AppState: ObservableObject {
 
     func setCombo(_ combo: KeyCombo?, for sourceID: String) {
         if let combo {
+            // 동일 단축키가 다른 소스에 이미 할당돼 있으면 제거 (last-wins)
+            mappings = mappings.filter { $0.key == sourceID || $0.value != combo }
             mappings[sourceID] = combo
         } else {
             mappings.removeValue(forKey: sourceID)

@@ -21,4 +21,6 @@ open /Applications/InputSwitcher.app
 - 기본 경로는 권한 불필요. 폴백(CGEvent)이 발동될 때만 접근성 권한을 요청한다.
 - 전환 검증 대기시간(기본 30ms) 조정:
   `defaults write dev.heesung.InputSwitcher verifyDelayMS -int 80`
+- `verifyDelayMS` 변경은 앱 재시작 후 적용된다.
 - "로그인 시 시작" 토글은 .app 번들로 실행할 때만 동작한다 (`swift run`에서는 무시됨).
+- 로컬(adhoc) 서명 특성상 재빌드 후에는 접근성 권한(폴백용)을 다시 요청할 수 있다.

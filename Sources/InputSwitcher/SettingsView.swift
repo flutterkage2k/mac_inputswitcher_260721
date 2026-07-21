@@ -21,6 +21,7 @@ struct SettingsView: View {
                         }
                         Button("×") { state.setCombo(nil, for: source.id) }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("단축키 삭제")
                     }
                     Button(state.recordingFor == source.id ? "취소" : "녹화") {
                         state.recordingFor = state.recordingFor == source.id ? nil : source.id
@@ -35,6 +36,7 @@ struct SettingsView: View {
                     Spacer()
                     Button("×") { state.setCombo(nil, for: orphanID) }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("단축키 삭제")
                 }
             }
             Divider()
