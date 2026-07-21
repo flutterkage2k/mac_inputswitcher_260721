@@ -40,6 +40,7 @@ final class HUD {
                         backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
+        p.hasShadow = false // 시스템 창 그림자가 회색 윤곽선처럼 보이는 것 방지
         p.level = .statusBar
         p.ignoresMouseEvents = true
         p.hidesOnDeactivate = false
