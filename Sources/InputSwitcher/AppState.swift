@@ -8,6 +8,9 @@ final class AppState: ObservableObject {
     @Published var recordingFor: String?          // 녹화 중인 소스 ID
     @Published var failedRegistrations: Set<String> = []
     @Published var lastSwitchFailed = false       // 폴백까지 실패 시 메뉴바 아이콘 표시용
+    @Published var showHUD: Bool {
+        didSet { settings.showHUD = showHUD }
+    }
 
     /// 매핑은 있는데 시스템에서 제거된 소스 ID들 (설정 화면에 "소스 없음"으로 표시)
     var orphanedMappings: [String] {
@@ -21,6 +24,7 @@ final class AppState: ObservableObject {
     private var switchTask: Task<Void, Never>?
 
     init() {
+        showHUD = Settings().showHUD
         sources = api.selectableSources()
         mappings = settings.mappings
         currentID = api.currentSourceID()
@@ -41,6 +45,10 @@ final class AppState: ObservableObject {
                     if !Task.isCancelled {
                         self.lastSwitchFailed = !ok
                         self.currentID = self.api.currentSourceID()
+                        if ok, self.showHUD,
+                           let name = self.sources.first(where: { $0.id == sourceID })?.name {
+                            HUD.shared.show(name)
+                        }
                     }
                 }
             }

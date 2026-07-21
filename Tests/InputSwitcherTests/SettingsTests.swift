@@ -21,6 +21,13 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(Settings(defaults: defaults).mappings.isEmpty)
     }
 
+    func test_showHUD_기본값_true_저장_유지() {
+        XCTAssertTrue(Settings(defaults: defaults).showHUD)
+        let s = Settings(defaults: defaults)
+        s.showHUD = false
+        XCTAssertFalse(Settings(defaults: defaults).showHUD)
+    }
+
     func test_verifyDelay_기본값_150() {
         XCTAssertEqual(Settings(defaults: defaults).verifyDelayMS, 150)
     }

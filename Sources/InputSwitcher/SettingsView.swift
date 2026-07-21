@@ -47,6 +47,8 @@ struct SettingsView: View {
                 }
             ))
             .toggleStyle(.checkbox)
+            Toggle("전환 시 화면에 표시 (HUD)", isOn: $state.showHUD)
+                .toggleStyle(.checkbox)
             HStack {
                 Button("종료") { NSApp.terminate(nil) }
                 Spacer()

@@ -25,6 +25,11 @@ final class Settings {
         set { defaults.set(try? JSONEncoder().encode(newValue), forKey: mappingsKey) }
     }
 
+    var showHUD: Bool {
+        get { defaults.object(forKey: "showHUD") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "showHUD") }
+    }
+
     var verifyDelayMS: UInt64 {
         get {
             let v = defaults.integer(forKey: delayKey)
