@@ -10,19 +10,30 @@ final class HotkeyManager {
         var spec = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetEventDispatcherTarget(), { _, event, userData in
+        let status = InstallEventHandler(GetEventDispatcherTarget(), { _, event, userData in
             var hkID = EventHotKeyID()
-            GetEventParameter(event, EventParamName(kEventParamDirectObject),
-                              EventParamType(typeEventHotKeyID), nil,
-                              MemoryLayout<EventHotKeyID>.size, nil, &hkID)
+            guard GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                                    EventParamType(typeEventHotKeyID), nil,
+                                    MemoryLayout<EventHotKeyID>.size, nil, &hkID) == noErr else {
+                return noErr
+            }
             let manager = Unmanaged<HotkeyManager>.fromOpaque(userData!).takeUnretainedValue()
             manager.actions[hkID.id]?()
             return noErr
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handler)
+        if status != noErr {
+            handler = nil
+        }
+    }
+
+    deinit {
+        unregisterAll()
+        if let handler { RemoveEventHandler(handler) }
     }
 
     @discardableResult
     func register(_ combo: KeyCombo, action: @escaping () -> Void) -> Bool {
+        guard handler != nil else { return false }
         var ref: EventHotKeyRef?
         let id = nextID
         nextID += 1
