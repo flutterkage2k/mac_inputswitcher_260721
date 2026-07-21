@@ -103,10 +103,15 @@ final class SystemInputSourceAPI: InputSourceAPI {
         return Unmanaged<CFArray>.fromOpaque(ptr).takeUnretainedValue() as? [String] ?? []
     }
 
-    /// 포커스를 잃으면 닫히는 일시 패널(Spotlight)이 떠 있는가.
-    /// Spotlight은 닫혀 있으면 on-screen 창이 0개이므로 소유 창 존재 = 열림.
-    // ponytail: Spotlight만 감지. Raycast/Alfred 등도 필요해지면 이름 추가.
+    /// 포커스를 잃으면 닫히는 일시 패널이 떠 있는가.
+    /// - Raycast/Alfred류 런처: accessory 앱이 frontmost가 된 상태로 감지.
+    /// - Spotlight: activate 없이 key만 가지므로 소유 on-screen 창 존재로 감지
+    ///   (닫혀 있으면 0개임을 실측 확인).
     private func transientPanelIsOpen() -> Bool {
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.activationPolicy != .regular {
+            return true
+        }
         let list = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
         return list.contains { ($0[kCGWindowOwnerName as String] as? String) == "Spotlight" }
     }
