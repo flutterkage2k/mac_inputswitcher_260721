@@ -32,9 +32,14 @@ final class Switcher {
     }
 
     func switchTo(_ id: String) async -> Bool {
-        if api.currentSourceID() == id { return true }
+        dbg("switchTo(\(id)) — current=\(api.currentSourceID() ?? "?")")
+        if api.currentSourceID() == id {
+            dbg("switchTo: 이미 현재 소스, no-op")
+            return true
+        }
         let isCJKV = api.selectableSources().first { $0.id == id }?.isCJKV ?? false
-        for _ in 0..<2 {
+        for attempt in 0..<2 {
+            dbg("switchTo: attempt \(attempt) select")
             api.select(id)
             if isCJKV {
                 await api.commitSelection(waitMS: verifyDelayMS)
@@ -46,6 +51,7 @@ final class Switcher {
             if api.currentSourceID() == id { return true }
         }
         // 폴백: 시스템 "다음 소스 선택" 단축키로 순환. 소스 개수만큼만 시도.
+        dbg("switchTo: 검증 실패 → 폴백 진입 (current=\(api.currentSourceID() ?? "?"))")
         for _ in 0..<max(1, api.selectableSources().count) {
             api.postSystemSwitchShortcut()
             try? await Task.sleep(nanoseconds: verifyDelayMS * 1_000_000)
