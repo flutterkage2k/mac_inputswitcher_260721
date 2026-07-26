@@ -54,7 +54,7 @@ struct SettingsView: View {
             HStack {
                 Button("종료") { NSApp.terminate(nil) }
                 Spacer()
-                Text("v\(appVersion) · 2026.07.22 · @kage2k")
+                Text("v\(appVersion) · 2026.07.26 · @kage2k")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -82,20 +82,32 @@ private struct AppRulesSection: View {
             .sorted { $0.name < $1.name }
     }
 
+    private var rulesList: some View {
+        ForEach(state.appRules.sorted(by: { $0.value.appName < $1.value.appName }),
+                id: \.key) { bundleID, rule in
+            HStack {
+                Text(rule.appName)
+                Spacer()
+                Text(state.sources.first { $0.id == rule.sourceID }?.name ?? rule.sourceID)
+                    .foregroundStyle(.secondary)
+                Button("×") { state.removeAppRule(bundleID) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("규칙 삭제")
+            }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("앱별 자동 전환").font(.caption).foregroundStyle(.secondary)
-            ForEach(state.appRules.sorted(by: { $0.value.appName < $1.value.appName }),
-                    id: \.key) { bundleID, rule in
-                HStack {
-                    Text(rule.appName)
-                    Spacer()
-                    Text(state.sources.first { $0.id == rule.sourceID }?.name ?? rule.sourceID)
-                        .foregroundStyle(.secondary)
-                    Button("×") { state.removeAppRule(bundleID) }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("규칙 삭제")
+            // 규칙이 많아져도 팝오버가 무한정 길어지지 않게 6개 초과 시 스크롤
+            if state.appRules.count > 6 {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) { rulesList }
                 }
+                .frame(height: 150)
+            } else {
+                rulesList
             }
             HStack {
                 Picker("", selection: $newAppBundleID) {

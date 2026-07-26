@@ -6,6 +6,8 @@
 - 예: `⌃⌥⇧⌘J` → 한글, `⌃⌥⇧⌘K` → 영어, `⌃⌥⇧⌘L` → 일본어 (단축키는 자유롭게 설정)
 - macOS의 악명 높은 **CJK 입력소스 전환 버그**(전환해도 실제 타이핑은 이전 언어)를 우회
 - Spotlight / Raycast 같은 런처 패널이 열려 있어도 패널을 닫지 않고 전환
+- **앱별 자동 전환**: 지정한 앱이 활성화되면 지정한 입력소스로 자동 변경
+  (예: 터미널/iTerm → 항상 영어)
 - 외부 의존성 0 — Karabiner, macism 필요 없음. 앱 하나로 끝
 
 ## ⚠️ 사용에 대한 경고
@@ -66,7 +68,7 @@ InputSwitcher는 select 후 **포커스 커밋** — 앱이 잠깐 key가 됐다
 
 ```bash
 swift build   # 빌드
-swift test    # 단위 테스트 (13개)
+swift test    # 단위 테스트 (17개)
 ./scripts/bundle.sh   # .app 번들 생성 (adhoc 서명, 로컬용)
 ./scripts/release.sh  # Developer ID 서명 + 공증 + 배포 zip (메인테이너용)
 ```
