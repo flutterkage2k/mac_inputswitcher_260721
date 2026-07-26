@@ -25,7 +25,10 @@ final class AppState: ObservableObject {
     private lazy var switcher = Switcher(api: api, verifyDelayMS: settings.verifyDelayMS)
     private var switchTask: Task<Void, Never>?
     private var activationObserver: NSObjectProtocol?
-    private var lastActivatedBundleID: String?
+    /// 이 시각 전까지 규칙 발동 중지. 커밋 포커스 사이클(규칙 앱→자신→규칙 앱
+    /// 재활성화, 수백 ms 내)이 규칙을 재발동해 루프가 되는 것을 막는다.
+    // ponytail: 시간 창 방식 — 전환 직후 1초 내 규칙 앱 진입은 자동 전환 안 됨
+    private var suppressRulesUntil = Date.distantPast
 
     init() {
         showHUD = Settings().showHUD
@@ -49,19 +52,20 @@ final class AppState: ObservableObject {
     }
 
     private func appDidActivate(_ bundleID: String) {
-        // CJKV 커밋의 포커스 사이클(규칙 앱→자신→규칙 앱)이 규칙을 재발동해
-        // 무한 루프가 되지 않도록: 자신은 무시, 같은 앱 연속 재활성화도 무시.
         guard bundleID != Bundle.main.bundleIdentifier else { return }
-        guard bundleID != lastActivatedBundleID else { return }
-        lastActivatedBundleID = bundleID
         guard let rule = appRules[bundleID],
               api.currentSourceID() != rule.sourceID,
               sources.contains(where: { $0.id == rule.sourceID }) else { return }
+        guard Date() > suppressRulesUntil else {
+            dbg("autoSwitch: \(bundleID) 억제됨 (전환 직후 재활성화)")
+            return
+        }
         dbg("autoSwitch: \(bundleID) → \(rule.sourceID)")
         performSwitch(to: rule.sourceID)
     }
 
     private func performSwitch(to sourceID: String) {
+        suppressRulesUntil = Date().addingTimeInterval(1.0)
         switchTask?.cancel()
         switchTask = Task { @MainActor in
             let ok = await switcher.switchTo(sourceID)
