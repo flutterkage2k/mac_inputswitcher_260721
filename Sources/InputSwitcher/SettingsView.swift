@@ -84,8 +84,8 @@ struct SettingsView: View {
                     Text("최신 버전입니다").font(.caption).foregroundStyle(.green)
                 case .failed:
                     Text("확인 실패").font(.caption).foregroundStyle(.red)
-                case .available:
-                    Button("업데이트가 있습니다") { showUpdateAlert = true }
+                case .available(let info):
+                    Button("업데이트가 있습니다") { NSWorkspace.shared.open(info.url) }
                         .buttonStyle(.plain)
                         .font(.caption)
                         .foregroundStyle(Color(red: 0.72, green: 0.08, blue: 0.08))
