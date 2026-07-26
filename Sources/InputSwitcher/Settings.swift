@@ -1,5 +1,10 @@
 import Foundation
 
+struct AppRule: Codable, Equatable {
+    var appName: String   // 표시용 (앱이 실행 중이 아닐 때도 목록에 보여야 함)
+    var sourceID: String
+}
+
 struct KeyCombo: Codable, Equatable {
     var keyCode: UInt32
     var carbonModifiers: UInt32
@@ -23,6 +28,17 @@ final class Settings {
             return decoded
         }
         set { defaults.set(try? JSONEncoder().encode(newValue), forKey: mappingsKey) }
+    }
+
+    /// 앱별 자동 전환 규칙 (키: bundleID)
+    var appRules: [String: AppRule] {
+        get {
+            guard let data = defaults.data(forKey: "appRules"),
+                  let decoded = try? JSONDecoder().decode([String: AppRule].self, from: data)
+            else { return [:] }
+            return decoded
+        }
+        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: "appRules") }
     }
 
     var showHUD: Bool {

@@ -16,6 +16,9 @@ final class MockAPI: InputSourceAPI {
     private(set) var postShortcutCalls = 0
     private(set) var commitCalls = 0
 
+    /// false면 패널 열림 등으로 커밋이 생략된 상황 시뮬레이션
+    var commitRuns = true
+
     func currentSourceID() -> String? { current }
     @discardableResult func select(_ id: String) -> Bool {
         selectCalls += 1
@@ -23,7 +26,10 @@ final class MockAPI: InputSourceAPI {
         return true
     }
     func selectableSources() -> [InputSource] { sources }
-    func commitSelection(waitMS: UInt64) async { commitCalls += 1 }
+    func commitSelection(waitMS: UInt64) async -> Bool {
+        commitCalls += 1
+        return commitRuns
+    }
     func postSystemSwitchShortcut() {
         postShortcutCalls += 1
         cycleIndex = (cycleIndex + 1) % cycleOrder.count
@@ -64,6 +70,20 @@ final class SwitcherTests: XCTestCase {
         let ok = await makeSwitcher(api).switchTo("fr")
         XCTAssertTrue(ok)
         XCTAssertEqual(api.commitCalls, 0)
+    }
+
+    func test_커밋_생략된_CJKV_이후에는_비CJKV_전환도_커밋한다() async {
+        let api = MockAPI()
+        let switcher = makeSwitcher(api)
+        api.commitRuns = false               // 패널 열림: 한글 선택, 커밋 생략
+        _ = await switcher.switchTo("ko")
+        XCTAssertEqual(api.commitCalls, 1)
+        api.commitRuns = true                // 패널 닫힘
+        _ = await switcher.switchTo("en")    // 미커밋 상태 → 비CJKV여도 커밋 수행
+        XCTAssertEqual(api.commitCalls, 2)
+        api.sources.append(InputSource(id: "fr", name: "French"))
+        _ = await switcher.switchTo("fr")    // 미커밋 해소됨 → 커밋 없음
+        XCTAssertEqual(api.commitCalls, 2)
     }
 
     func test_재시도로_성공() async {

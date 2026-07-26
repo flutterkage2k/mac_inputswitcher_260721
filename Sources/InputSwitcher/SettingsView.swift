@@ -40,6 +40,8 @@ struct SettingsView: View {
                 }
             }
             Divider()
+            AppRulesSection(state: state)
+            Divider()
             Toggle("로그인 시 시작", isOn: Binding(
                 get: { SMAppService.mainApp.status == .enabled },
                 set: { on in
@@ -52,7 +54,7 @@ struct SettingsView: View {
             HStack {
                 Button("종료") { NSApp.terminate(nil) }
                 Spacer()
-                Text("v\(appVersion) · 2026.07.22 · @kage2k")
+                Text("v\(appVersion) · 2026.07.26 · @kage2k")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -61,6 +63,77 @@ struct SettingsView: View {
         .frame(width: 320)
         .background(KeyRecorder(state: state))
         .onAppear { state.refreshCurrent() }
+    }
+}
+
+/// 앱별 자동 전환: 규칙 목록 + 실행 중인 앱/입력소스 피커로 규칙 추가.
+private struct AppRulesSection: View {
+    @ObservedObject var state: AppState
+    @State private var newAppBundleID = ""
+    @State private var newSourceID = ""
+
+    private var runningApps: [(bundleID: String, name: String)] {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .compactMap { app in
+                guard let bid = app.bundleIdentifier else { return nil }
+                return (bid, app.localizedName ?? bid)
+            }
+            .sorted { $0.name < $1.name }
+    }
+
+    private var rulesList: some View {
+        ForEach(state.appRules.sorted(by: { $0.value.appName < $1.value.appName }),
+                id: \.key) { bundleID, rule in
+            HStack {
+                Text(rule.appName)
+                Spacer()
+                Text(state.sources.first { $0.id == rule.sourceID }?.name ?? rule.sourceID)
+                    .foregroundStyle(.secondary)
+                Button("×") { state.removeAppRule(bundleID) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("규칙 삭제")
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("앱별 자동 전환").font(.caption).foregroundStyle(.secondary)
+            // 규칙이 많아져도 팝오버가 무한정 길어지지 않게 6개 초과 시 스크롤
+            if state.appRules.count > 6 {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) { rulesList }
+                }
+                .frame(height: 150)
+            } else {
+                rulesList
+            }
+            HStack {
+                Picker("", selection: $newAppBundleID) {
+                    Text("앱 선택").tag("")
+                    ForEach(runningApps, id: \.bundleID) { app in
+                        Text(app.name).tag(app.bundleID)
+                    }
+                }
+                .labelsHidden()
+                Picker("", selection: $newSourceID) {
+                    Text("입력소스").tag("")
+                    ForEach(state.sources) { source in
+                        Text(source.name).tag(source.id)
+                    }
+                }
+                .labelsHidden()
+                Button("추가") {
+                    guard let app = runningApps.first(where: { $0.bundleID == newAppBundleID }),
+                          !newSourceID.isEmpty else { return }
+                    state.addAppRule(bundleID: app.bundleID, appName: app.name, sourceID: newSourceID)
+                    newAppBundleID = ""
+                    newSourceID = ""
+                }
+                .disabled(newAppBundleID.isEmpty || newSourceID.isEmpty)
+            }
+        }
     }
 }
 

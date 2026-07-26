@@ -17,18 +17,67 @@ final class AppState: ObservableObject {
         mappings.keys.filter { id in !sources.contains(where: { $0.id == id }) }.sorted()
     }
 
+    @Published var appRules: [String: AppRule] = [:]
+
     private let api = SystemInputSourceAPI()
     private let settings = Settings()
     private let hotkeys = HotkeyManager()
     private lazy var switcher = Switcher(api: api, verifyDelayMS: settings.verifyDelayMS)
     private var switchTask: Task<Void, Never>?
+    private var activationObserver: NSObjectProtocol?
+    /// 이 시각 전까지 규칙 발동 중지. 커밋 포커스 사이클(규칙 앱→자신→규칙 앱
+    /// 재활성화, 수백 ms 내)이 규칙을 재발동해 루프가 되는 것을 막는다.
+    // ponytail: 시간 창 방식 — 전환 직후 1초 내 규칙 앱 진입은 자동 전환 안 됨
+    private var suppressRulesUntil = Date.distantPast
 
     init() {
         showHUD = Settings().showHUD
         sources = api.selectableSources()
         mappings = settings.mappings
+        appRules = settings.appRules
         currentID = api.currentSourceID()
         registerAll()
+        observeAppActivations()
+    }
+
+    private func observeAppActivations() {
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let bundleID = app.bundleIdentifier else { return }
+            Task { @MainActor in self?.appDidActivate(bundleID) }
+        }
+    }
+
+    private func appDidActivate(_ bundleID: String) {
+        guard bundleID != Bundle.main.bundleIdentifier else { return }
+        guard let rule = appRules[bundleID],
+              api.currentSourceID() != rule.sourceID,
+              sources.contains(where: { $0.id == rule.sourceID }) else { return }
+        guard Date() > suppressRulesUntil else {
+            dbg("autoSwitch: \(bundleID) 억제됨 (전환 직후 재활성화)")
+            return
+        }
+        dbg("autoSwitch: \(bundleID) → \(rule.sourceID)")
+        performSwitch(to: rule.sourceID)
+    }
+
+    private func performSwitch(to sourceID: String) {
+        suppressRulesUntil = Date().addingTimeInterval(1.0)
+        switchTask?.cancel()
+        switchTask = Task { @MainActor in
+            let ok = await switcher.switchTo(sourceID)
+            if !Task.isCancelled {
+                lastSwitchFailed = !ok
+                currentID = api.currentSourceID()
+                if ok, showHUD,
+                   let name = sources.first(where: { $0.id == sourceID })?.name {
+                    HUD.shared.show(name)
+                }
+            }
+        }
     }
 
     func registerAll() {
@@ -38,19 +87,7 @@ final class AppState: ObservableObject {
             // 시스템에서 제거된 소스의 매핑은 무시 (스펙: 에러 처리)
             guard sources.contains(where: { $0.id == sourceID }) else { continue }
             let ok = hotkeys.register(combo) { [weak self] in
-                guard let self else { return }
-                self.switchTask?.cancel()
-                self.switchTask = Task { @MainActor in
-                    let ok = await self.switcher.switchTo(sourceID)
-                    if !Task.isCancelled {
-                        self.lastSwitchFailed = !ok
-                        self.currentID = self.api.currentSourceID()
-                        if ok, self.showHUD,
-                           let name = self.sources.first(where: { $0.id == sourceID })?.name {
-                            HUD.shared.show(name)
-                        }
-                    }
-                }
+                self?.performSwitch(to: sourceID)
             }
             if !ok { failedRegistrations.insert(sourceID) }
         }
@@ -70,5 +107,15 @@ final class AppState: ObservableObject {
 
     func refreshCurrent() {
         currentID = api.currentSourceID()
+    }
+
+    func addAppRule(bundleID: String, appName: String, sourceID: String) {
+        appRules[bundleID] = AppRule(appName: appName, sourceID: sourceID)
+        settings.appRules = appRules
+    }
+
+    func removeAppRule(_ bundleID: String) {
+        appRules.removeValue(forKey: bundleID)
+        settings.appRules = appRules
     }
 }

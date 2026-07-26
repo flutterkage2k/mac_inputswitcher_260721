@@ -20,13 +20,14 @@ final class SystemInputSourceAPI: InputSourceAPI {
 
     /// CJKV 커밋: 작은 창을 띄워 잠깐 key/active가 됐다가 숨어서 이전 앱으로 포커스를
     /// 돌려준다. 이 포커스 사이클이 있어야 백그라운드에서의 CJKV 전환이 실제 적용된다.
-    func commitSelection(waitMS: UInt64) async {
-        guard waitMS > 0 else { return }
+    @discardableResult
+    func commitSelection(waitMS: UInt64) async -> Bool {
+        guard waitMS > 0 else { return true } // 0 = 커밋 기능 자체를 끈 것 → 생략 아님
         // Spotlight 같은 일시 패널은 포커스를 잃는 순간 닫히므로 커밋을 생략한다.
         // 패널 자체가 key인 상황에서는 plain select만으로 전환이 적용된다.
         guard !transientPanelIsOpen() else {
             dbg("commit: skip (panel open)")
-            return
+            return false
         }
         dbg("commit: focus-steal 실행 (\(waitMS)ms)")
         let screen = NSScreen.main?.visibleFrame ?? .zero
@@ -43,6 +44,7 @@ final class SystemInputSourceAPI: InputSourceAPI {
         try? await Task.sleep(nanoseconds: waitMS * 1_000_000)
         window.orderOut(nil)
         NSApp.hide(nil) // accessory 앱이 숨으면 이전 앱으로 포커스가 복귀한다
+        return true
     }
 
     func currentSourceID() -> String? {
