@@ -81,12 +81,20 @@ struct SettingsView: View {
                 .disabled(updateStatus == .checking)
                 switch updateStatus {
                 case .upToDate:
-                    Text("최신 버전입니다").font(.caption).foregroundStyle(.secondary)
+                    Text("최신 버전입니다").font(.caption).foregroundStyle(.green)
                 case .failed:
                     Text("확인 실패").font(.caption).foregroundStyle(.red)
+                case .available:
+                    Button("업데이트가 있습니다") { showUpdateAlert = true }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(Color(red: 0.72, green: 0.08, blue: 0.08))
                 default:
                     EmptyView()
                 }
+                Spacer()
+            }
+            HStack {
                 Spacer()
                 Text("v\(appVersion) · 2026.07.26 · @kage2k")
                     .font(.caption2)
