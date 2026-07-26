@@ -5,6 +5,28 @@ import ServiceManagement
 struct SettingsView: View {
     @ObservedObject var state: AppState
 
+    private enum UpdateStatus: Equatable {
+        case idle, checking, upToDate, failed
+        case available(UpdateInfo)
+    }
+    @State private var updateStatus: UpdateStatus = .idle
+    @State private var showUpdateAlert = false
+
+    private func checkForUpdate() async {
+        updateStatus = .checking
+        do {
+            let latest = try await UpdateChecker.latestRelease()
+            if isVersion(appVersion, olderThan: latest.version) {
+                updateStatus = .available(latest)
+                showUpdateAlert = true
+            } else {
+                updateStatus = .upToDate
+            }
+        } catch {
+            updateStatus = .failed
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(state.sources) { source in
@@ -53,6 +75,26 @@ struct SettingsView: View {
                 .toggleStyle(.checkbox)
             HStack {
                 Button("종료") { NSApp.terminate(nil) }
+                Button(updateStatus == .checking ? "확인 중..." : "업데이트 확인") {
+                    Task { await checkForUpdate() }
+                }
+                .disabled(updateStatus == .checking)
+                switch updateStatus {
+                case .upToDate:
+                    Text("최신 버전입니다").font(.caption).foregroundStyle(.green)
+                case .failed:
+                    Text("확인 실패").font(.caption).foregroundStyle(.red)
+                case .available(let info):
+                    Button("업데이트가 있습니다") { NSWorkspace.shared.open(info.url) }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(Color(red: 0.72, green: 0.08, blue: 0.08))
+                default:
+                    EmptyView()
+                }
+                Spacer()
+            }
+            HStack {
                 Spacer()
                 Text("v\(appVersion) · 2026.07.26 · @kage2k")
                     .font(.caption2)
@@ -63,6 +105,18 @@ struct SettingsView: View {
         .frame(width: 320)
         .background(KeyRecorder(state: state))
         .onAppear { state.refreshCurrent() }
+        .alert("새로운 버전이 있습니다", isPresented: $showUpdateAlert) {
+            Button("다운로드") {
+                if case .available(let info) = updateStatus {
+                    NSWorkspace.shared.open(info.url)
+                }
+            }
+            Button("나중에", role: .cancel) {}
+        } message: {
+            if case .available(let info) = updateStatus {
+                Text("현재 v\(appVersion) → \(info.version)\nReleases 페이지에서 내려받아 교체하세요.")
+            }
+        }
     }
 }
 
