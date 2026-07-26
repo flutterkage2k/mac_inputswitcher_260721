@@ -21,6 +21,17 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(Settings(defaults: defaults).mappings.isEmpty)
     }
 
+    func test_앱규칙_저장_후_다시_읽기() {
+        let s = Settings(defaults: defaults)
+        let rule = AppRule(appName: "iTerm2", sourceID: "com.apple.keylayout.ABC")
+        s.appRules = ["com.googlecode.iterm2": rule]
+        XCTAssertEqual(Settings(defaults: defaults).appRules["com.googlecode.iterm2"], rule)
+    }
+
+    func test_앱규칙_빈_상태는_빈_딕셔너리() {
+        XCTAssertTrue(Settings(defaults: defaults).appRules.isEmpty)
+    }
+
     func test_showHUD_기본값_true_저장_유지() {
         XCTAssertTrue(Settings(defaults: defaults).showHUD)
         let s = Settings(defaults: defaults)
