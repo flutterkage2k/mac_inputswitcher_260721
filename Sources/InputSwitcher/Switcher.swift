@@ -16,7 +16,8 @@ protocol InputSourceAPI {
     /// CJKV 선택을 실제로 커밋한다. TISSelectInputSource는 백그라운드 앱에서 CJKV로
     /// 전환 시 아이콘만 바꾸고 실제 IME는 안 바꾸므로, 잠깐 자기 앱이 key가 됐다가
     /// 돌아오는 포커스 사이클로 커밋시킨다 (macism 방식).
-    func commitSelection(waitMS: UInt64) async
+    /// 반환: 실제로 커밋을 수행했으면 true, (패널 열림 등으로) 생략했으면 false.
+    func commitSelection(waitMS: UInt64) async -> Bool
     func postSystemSwitchShortcut()
 }
 
@@ -25,6 +26,9 @@ protocol InputSourceAPI {
 final class Switcher {
     private let api: InputSourceAPI
     var verifyDelayMS: UInt64
+    /// CJKV가 커밋 없이 선택된 상태(패널 열림 중 전환). 이 상태를 떠나는 전환은
+    /// 비CJKV 타깃이라도 커밋해야 실제 IME가 풀린다.
+    private var pendingCommit = false
 
     init(api: InputSourceAPI, verifyDelayMS: UInt64 = 150) {
         self.api = api
@@ -41,8 +45,10 @@ final class Switcher {
         for attempt in 0..<2 {
             dbg("switchTo: attempt \(attempt) select")
             api.select(id)
-            if isCJKV {
-                await api.commitSelection(waitMS: verifyDelayMS)
+            if isCJKV || pendingCommit {
+                let committed = await api.commitSelection(waitMS: verifyDelayMS)
+                pendingCommit = !committed
+                if !committed { dbg("switchTo: 커밋 생략됨 → pendingCommit") }
             }
             if Task.isCancelled { return true }
             if api.currentSourceID() == id { return true }
