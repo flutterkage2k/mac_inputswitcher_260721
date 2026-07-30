@@ -1,35 +1,42 @@
 # InputSwitcher
 
-입력소스별 전용 단축키로 즉시 전환하는 macOS 메뉴바 앱.
-업데이트가 중단된 [kawa](https://github.com/hatashiro/kawa)의 현대적 재구현입니다.
+**English** | [한국어](README.ko.md)
 
-- 예: `⌃⌥⇧⌘J` → 한글, `⌃⌥⇧⌘K` → 영어, `⌃⌥⇧⌘L` → 일본어 (단축키는 자유롭게 설정)
-- macOS의 악명 높은 **CJK 입력소스 전환 버그**(전환해도 실제 타이핑은 이전 언어)를 우회
-- Spotlight / Raycast 같은 런처 패널이 열려 있어도 패널을 닫지 않고 전환
-- **앱별 자동 전환**: 지정한 앱이 활성화되면 지정한 입력소스로 자동 변경
-  (예: 터미널/iTerm → 항상 영어)
-- 외부 의존성 0 — Karabiner, macism 필요 없음. 앱 하나로 끝
+A macOS menu bar app that switches keyboard input sources instantly with dedicated hotkeys.
+A modern reimplementation of the abandoned [kawa](https://github.com/hatashiro/kawa).
 
-## ⚠️ 사용에 대한 경고
+- Example: `⌃⌥⇧⌘J` → Korean, `⌃⌥⇧⌘K` → English, `⌃⌥⇧⌘L` → Japanese (fully configurable)
+- Works around macOS's infamous **CJK input source switching bug** (where the menu bar
+  icon changes but you keep typing in the previous language)
+- Launcher-safe: switching while Spotlight / Raycast is open does **not** dismiss the panel
+- **Per-app auto switch**: activate a chosen app and the input source changes automatically
+  (e.g. Terminal/iTerm → always English)
+- Zero dependencies — no Karabiner, no macism. One app does it all
+- Built-in update check against GitHub Releases
 
-- **개인 프로젝트입니다.** 어떠한 보증 없이 "있는 그대로" 제공되며, 사용으로 인한
-  문제(입력소스 설정 변경, 데이터 입력 오류 등)에 대해 개발자는 책임지지 않습니다.
-- CJK 전환 시 화면 우하단에 아주 작은 창이 잠깐(기본 150ms) 나타났다 사라집니다.
-  이것은 macOS 버그 우회를 위한 **정상 동작**입니다.
-- 폴백 경로에서만 접근성 권한을 요청합니다. 기본 동작에는 아무 권한도 필요 없습니다.
-- macOS 14 (Sonoma) 이상, Apple Silicon/Intel. macOS 26 (Tahoe)에서 개발·테스트됨.
+## ⚠️ Disclaimer
 
-## 설치
+- **This is a personal project.** Provided "as is" with no warranty of any kind; the
+  developer is not responsible for any issues caused by its use.
+- When switching to a CJK source, a tiny window flashes in the bottom-right corner for
+  ~150 ms. This is **expected behavior** — it is the workaround for the macOS bug.
+- Accessibility permission is requested only on the fallback path. Normal operation
+  requires no permissions at all.
+- Requires macOS 14 (Sonoma) or later, Apple Silicon/Intel. Developed and tested on
+  macOS 26 (Tahoe).
 
-### 다운로드 (권장)
+## Install
 
-[**Releases**](https://github.com/flutterkage2k/mac_inputswitcher_260721/releases)에서
-최신 zip을 받아 압축 해제 후 `InputSwitcher.app`을 응용 프로그램 폴더로 옮기면 끝.
-**Developer ID 서명 + Apple 공증(notarized)** 완료 상태라 Gatekeeper 경고 없이 실행됩니다.
+### Download (recommended)
 
-### 소스 빌드
+Grab the latest zip from [**Releases**](https://github.com/flutterkage2k/mac_inputswitcher_260721/releases),
+unzip, and move `InputSwitcher.app` to your Applications folder.
+The app is **Developer ID signed and notarized by Apple**, so it runs without
+Gatekeeper warnings.
 
-Xcode Command Line Tools만 있으면 됩니다.
+### Build from source
+
+Only Xcode Command Line Tools required.
 
 ```bash
 git clone https://github.com/flutterkage2k/mac_inputswitcher_260721.git
@@ -39,40 +46,47 @@ cp -Rf build/InputSwitcher.app /Applications/
 open /Applications/InputSwitcher.app
 ```
 
-## 사용법
+## Usage
 
-1. 메뉴바의 키보드 아이콘 클릭
-2. 각 입력소스 옆 **단축키설정** → 원하는 단축키 입력 (⌘/⌥/⌃/⇧ 수식키 필수)
-3. 어느 앱에서든 단축키로 즉시 전환. "로그인 시 시작"을 켜면 부팅 후 자동 실행
+1. Click the keyboard icon in the menu bar
+2. Press **단축키설정** (set hotkey) next to each input source and type the shortcut
+   you want (a modifier key — ⌘/⌥/⌃/⇧ — is required)
+3. Switch instantly from any app. Enable "로그인 시 시작" (launch at login) to start
+   automatically after boot
+4. Add per-app rules under "앱별 자동 전환" (per-app auto switch): pick a running app
+   and an input source
 
-## 작동 원리
+## How it works
 
-`TISSelectInputSource`는 백그라운드 앱에서 CJK(한/중/일) 입력소스로 전환할 때
-메뉴바 아이콘만 바꾸고 실제 IME는 바꾸지 않는 버그가 있습니다 (macOS 26에서도 존재).
-InputSwitcher는 select 후 **포커스 커밋** — 앱이 잠깐 key가 됐다가 이전 앱으로
-복귀하는 사이클([macism](https://github.com/laishulu/macism)과 같은 방식) — 으로
-전환을 실제 적용시킵니다. Spotlight/Raycast 패널이 열려 있으면 패널이 닫히지 않도록
-커밋을 생략하고 plain select만 수행합니다.
+`TISSelectInputSource` has a long-standing macOS bug: when a background app switches
+to a CJK input source, only the menu bar icon changes — the actual IME does not
+(still present on macOS 26). InputSwitcher fixes this with a **focus commit** after
+selecting: the app briefly becomes key and returns focus to the previous app (the
+same cycle [macism](https://github.com/laishulu/macism) uses), which makes the switch
+actually take effect. When a Spotlight/Raycast panel is open, the commit is skipped so
+the panel doesn't get dismissed, and a plain select is performed instead.
 
-## 설정 조정
+## Tuning
 
-- CJK 커밋 대기시간 (기본 150ms — Tahoe 안정 최소값):
+- CJK commit wait time (default 150 ms — the minimum stable value on Tahoe):
   `defaults write dev.heesung.InputSwitcher verifyDelayMS -int 100`
-  낮추면 빨라지지만 전환이 씹힐 수 있습니다. 변경은 앱 재시작 후 적용됩니다.
-- 진단 로그: `~/Library/Logs/InputSwitcher.log` (1MB 상한). 문제 리포트 시 첨부해 주세요.
-- 소스 빌드(adhoc 서명)의 경우 재빌드 후 접근성 권한(폴백용)을 다시 요청할 수 있습니다.
-  Releases의 공증본은 해당 없음.
-- "로그인 시 시작"은 .app 번들로 실행할 때만 동작합니다 (`swift run`에서는 무시됨).
+  Lower is faster but may drop switches. Takes effect after an app restart.
+- Diagnostic log: `~/Library/Logs/InputSwitcher.log` (capped at 1 MB). Please attach
+  it when reporting issues.
+- Source builds (ad-hoc signed) may re-prompt for accessibility permission (fallback
+  path only) after each rebuild. Notarized builds from Releases are unaffected.
+- "Launch at login" only works when running from an .app bundle (ignored under
+  `swift run`).
 
-## 개발
+## Development
 
 ```bash
-swift build   # 빌드
-swift test    # 단위 테스트 (17개)
-./scripts/bundle.sh   # .app 번들 생성 (adhoc 서명, 로컬용)
-./scripts/release.sh  # Developer ID 서명 + 공증 + 배포 zip (메인테이너용)
+swift build   # build
+swift test    # unit tests (18)
+./scripts/bundle.sh   # create .app bundle (ad-hoc signed, local use)
+./scripts/release.sh  # Developer ID sign + notarize + publish release (maintainer)
 ```
 
-## 라이선스
+## License
 
 MIT — [@kage2k](https://github.com/flutterkage2k)
