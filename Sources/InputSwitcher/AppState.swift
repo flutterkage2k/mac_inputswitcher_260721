@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @MainActor
 final class AppState: ObservableObject {
@@ -18,6 +19,7 @@ final class AppState: ObservableObject {
     }
 
     @Published var appRules: [String: AppRule] = [:]
+    @Published var availableUpdate: UpdateInfo?
 
     private let api = SystemInputSourceAPI()
     private let settings = Settings()
@@ -38,6 +40,55 @@ final class AppState: ObservableObject {
         currentID = api.currentSourceID()
         registerAll()
         observeAppActivations()
+        scheduleUpdateChecks()
+    }
+
+    /// 실행 5초 후 1회 + 24시간마다 자동 업데이트 확인
+    private func scheduleUpdateChecks() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await checkForUpdates(notify: true)
+        }
+        Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { _ in
+            Task { @MainActor in await self.checkForUpdates(notify: true) }
+        }
+    }
+
+    /// 반환: 조회 성공 여부. 성공 시 availableUpdate 갱신 (없으면 nil).
+    @discardableResult
+    func checkForUpdates(notify: Bool) async -> Bool {
+        guard let latest = try? await UpdateChecker.latestRelease() else {
+            dbg("updateCheck: 조회 실패")
+            return false
+        }
+        if isVersion(appVersion, olderThan: latest.version) {
+            availableUpdate = latest
+            dbg("updateCheck: 새 버전 \(latest.version)")
+            if notify, settings.lastNotifiedVersion != latest.version {
+                settings.lastNotifiedVersion = latest.version
+                await postUpdateNotification(latest)
+            }
+        } else {
+            availableUpdate = nil
+        }
+        return true
+    }
+
+    /// 새 버전 배너 알림 (버전당 1회). 알림 클릭 처리는 AppDelegate가 담당.
+    private func postUpdateNotification(_ info: UpdateInfo) async {
+        guard Bundle.main.bundleIdentifier != nil else { return } // bare 실행 보호
+        let center = UNUserNotificationCenter.current()
+        let granted = (try? await center.requestAuthorization(options: [.alert])) ?? false
+        guard granted else {
+            dbg("updateCheck: 알림 권한 없음")
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = "InputSwitcher 업데이트"
+        content.body = "\(info.version) 버전이 나왔습니다. 클릭하면 다운로드 페이지가 열립니다."
+        let request = UNNotificationRequest(
+            identifier: "update-\(info.version)", content: content, trigger: nil)
+        try? await center.add(request)
     }
 
     private func observeAppActivations() {

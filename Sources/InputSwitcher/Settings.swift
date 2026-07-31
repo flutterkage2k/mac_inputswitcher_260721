@@ -41,6 +41,12 @@ final class Settings {
         set { defaults.set(try? JSONEncoder().encode(newValue), forKey: "appRules") }
     }
 
+    /// 배너로 알린 마지막 버전 (버전당 1회만 알리기 위함)
+    var lastNotifiedVersion: String {
+        get { defaults.string(forKey: "lastNotifiedVersion") ?? "" }
+        set { defaults.set(newValue, forKey: "lastNotifiedVersion") }
+    }
+
     var showHUD: Bool {
         get { defaults.object(forKey: "showHUD") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "showHUD") }

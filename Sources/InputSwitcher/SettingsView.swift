@@ -7,23 +7,20 @@ struct SettingsView: View {
 
     private enum UpdateStatus: Equatable {
         case idle, checking, upToDate, failed
-        case available(UpdateInfo)
     }
     @State private var updateStatus: UpdateStatus = .idle
     @State private var showUpdateAlert = false
 
     private func checkForUpdate() async {
         updateStatus = .checking
-        do {
-            let latest = try await UpdateChecker.latestRelease()
-            if isVersion(appVersion, olderThan: latest.version) {
-                updateStatus = .available(latest)
-                showUpdateAlert = true
-            } else {
-                updateStatus = .upToDate
-            }
-        } catch {
+        let ok = await state.checkForUpdates(notify: false)
+        if !ok {
             updateStatus = .failed
+        } else if state.availableUpdate != nil {
+            updateStatus = .idle
+            showUpdateAlert = true
+        } else {
+            updateStatus = .upToDate
         }
     }
 
@@ -79,18 +76,16 @@ struct SettingsView: View {
                     Task { await checkForUpdate() }
                 }
                 .disabled(updateStatus == .checking)
-                switch updateStatus {
-                case .upToDate:
-                    Text("최신 버전입니다").font(.caption).foregroundStyle(.green)
-                case .failed:
-                    Text("확인 실패").font(.caption).foregroundStyle(.red)
-                case .available(let info):
+                if let info = state.availableUpdate {
+                    // 수동/자동 어느 경로로 발견됐든 항상 표시
                     Button("업데이트가 있습니다") { NSWorkspace.shared.open(info.url) }
                         .buttonStyle(.plain)
                         .font(.caption)
                         .foregroundStyle(Color(red: 0.72, green: 0.08, blue: 0.08))
-                default:
-                    EmptyView()
+                } else if updateStatus == .upToDate {
+                    Text("최신 버전입니다").font(.caption).foregroundStyle(.green)
+                } else if updateStatus == .failed {
+                    Text("확인 실패").font(.caption).foregroundStyle(.red)
                 }
                 Spacer()
             }
@@ -107,13 +102,13 @@ struct SettingsView: View {
         .onAppear { state.refreshCurrent() }
         .alert("새로운 버전이 있습니다", isPresented: $showUpdateAlert) {
             Button("다운로드") {
-                if case .available(let info) = updateStatus {
+                if let info = state.availableUpdate {
                     NSWorkspace.shared.open(info.url)
                 }
             }
             Button("나중에", role: .cancel) {}
         } message: {
-            if case .available(let info) = updateStatus {
+            if let info = state.availableUpdate {
                 Text("현재 v\(appVersion) → \(info.version)\nReleases 페이지에서 내려받아 교체하세요.")
             }
         }
@@ -190,10 +185,6 @@ private struct AppRulesSection: View {
         }
     }
 }
-
-/// 번들 실행 시 Info.plist 버전, `swift run` 등 bare 실행 시 "dev".
-private let appVersion =
-    Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
 
 /// recordingFor가 설정된 동안 로컬 keyDown을 가로채 단축키로 저장한다.
 struct KeyRecorder: NSViewRepresentable {

@@ -1,5 +1,9 @@
 import Foundation
 
+/// 번들 실행 시 Info.plist 버전, `swift run` 등 bare 실행 시 "dev".
+let appVersion =
+    Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+
 /// "v0.2.0" / "0.10.1" 형식 비교. lhs가 rhs보다 오래된 버전이면 true.
 func isVersion(_ lhs: String, olderThan rhs: String) -> Bool {
     func parts(_ s: String) -> [Int] {
