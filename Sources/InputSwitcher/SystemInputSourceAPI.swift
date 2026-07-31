@@ -29,21 +29,22 @@ final class SystemInputSourceAPI: InputSourceAPI {
             dbg("commit: skip (panel open)")
             return false
         }
-        dbg("commit: focus-steal 실행 (\(waitMS)ms)")
+        dbg("commit: key-only 커밋 실행 (\(waitMS)ms)")
+        // nonactivating 패널(Spotlight과 같은 방식): 사용자 앱을 비활성화하지 않고
+        // key 상태만 잠깐 가져와 IME 세션을 재초기화시킨다. 앱 활성 상태가 유지되므로
+        // 인라인 이름변경 같은 포커스 민감 UI가 닫히지 않는다.
         let screen = NSScreen.main?.visibleFrame ?? .zero
-        let window = NSWindow(
+        let panel = NSPanel(
             contentRect: NSRect(x: screen.maxX - 11, y: screen.minY + 8, width: 3, height: 3),
-            styleMask: [.titled], // titled가 아니면 key window가 될 수 없음
+            styleMask: [.titled, .nonactivatingPanel], // titled가 아니면 key가 될 수 없음
             backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.titlebarAppearsTransparent = true
-        window.level = .screenSaver
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary]
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        panel.isReleasedWhenClosed = false
+        panel.titlebarAppearsTransparent = true
+        panel.level = .screenSaver
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        panel.makeKeyAndOrderFront(nil)
         try? await Task.sleep(nanoseconds: waitMS * 1_000_000)
-        window.orderOut(nil)
-        NSApp.hide(nil) // accessory 앱이 숨으면 이전 앱으로 포커스가 복귀한다
+        panel.orderOut(nil) // key는 이전 key window로 자동 복귀
         return true
     }
 
