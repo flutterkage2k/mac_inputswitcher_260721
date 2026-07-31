@@ -32,6 +32,13 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(Settings(defaults: defaults).appRules.isEmpty)
     }
 
+    func test_알림한_버전_기본값_빈문자열_저장_유지() {
+        XCTAssertEqual(Settings(defaults: defaults).lastNotifiedVersion, "")
+        let s = Settings(defaults: defaults)
+        s.lastNotifiedVersion = "v1.2.0"
+        XCTAssertEqual(Settings(defaults: defaults).lastNotifiedVersion, "v1.2.0")
+    }
+
     func test_showHUD_기본값_true_저장_유지() {
         XCTAssertTrue(Settings(defaults: defaults).showHUD)
         let s = Settings(defaults: defaults)
