@@ -1,6 +1,13 @@
 import Carbon
 import AppKit
 
+/// 커밋용 임시 패널. 커밋 중 들어온 키 입력을 감지해 알린다.
+private final class CommitPanel: NSPanel {
+    var onKeyDown: (() -> Void)?
+    override func keyDown(with event: NSEvent) { onKeyDown?() }
+    override func insertText(_ insertString: Any) { onKeyDown?() }
+}
+
 @MainActor
 final class SystemInputSourceAPI: InputSourceAPI {
     func selectableSources() -> [InputSource] {
@@ -34,7 +41,7 @@ final class SystemInputSourceAPI: InputSourceAPI {
         // key 상태만 잠깐 가져와 IME 세션을 재초기화시킨다. 앱 활성 상태가 유지되므로
         // 인라인 이름변경 같은 포커스 민감 UI가 닫히지 않는다.
         let screen = NSScreen.main?.visibleFrame ?? .zero
-        let panel = NSPanel(
+        let panel = CommitPanel(
             contentRect: NSRect(x: screen.maxX - 11, y: screen.minY + 8, width: 3, height: 3),
             styleMask: [.titled, .nonactivatingPanel], // titled가 아니면 key가 될 수 없음
             backing: .buffered, defer: false)
@@ -42,6 +49,12 @@ final class SystemInputSourceAPI: InputSourceAPI {
         panel.titlebarAppearsTransparent = true
         panel.level = .screenSaver
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        // 커밋 창(150ms) 동안 패널이 key라서 타이핑을 삼킬 수 있다.
+        // 키가 들어오면 즉시 물러나 삼킴 구간을 최소화하고 로그로 빈도를 계측한다.
+        panel.onKeyDown = { [weak panel] in
+            dbg("commit: 키 입력 감지 → 커밋 조기 종료 (입력 삼킴 가능성)")
+            panel?.orderOut(nil)
+        }
         panel.makeKeyAndOrderFront(nil)
         try? await Task.sleep(nanoseconds: waitMS * 1_000_000)
         panel.orderOut(nil) // key는 이전 key window로 자동 복귀

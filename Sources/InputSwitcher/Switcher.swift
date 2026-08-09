@@ -29,6 +29,15 @@ final class Switcher {
     /// CJKV가 커밋 없이 선택된 상태(패널 열림 중 전환). 이 상태를 떠나는 전환은
     /// 비CJKV 타깃이라도 커밋해야 실제 IME가 풀린다.
     private var pendingCommit = false
+    /// 같은 소스 재요청 강제 커밋의 디바운스 (연타로 커밋이 쏟아지지 않게)
+    var sameSourceCommitInterval: TimeInterval = 2
+    private var nextSameSourceCommit = Date.distantPast
+
+    private func commit() async {
+        let committed = await api.commitSelection(waitMS: verifyDelayMS)
+        pendingCommit = !committed
+        if !committed { dbg("switchTo: 커밋 생략됨 → pendingCommit") }
+    }
 
     init(api: InputSourceAPI, verifyDelayMS: UInt64 = 150) {
         self.api = api
@@ -36,19 +45,35 @@ final class Switcher {
     }
 
     func switchTo(_ id: String) async -> Bool {
-        dbg("switchTo(\(id)) — current=\(api.currentSourceID() ?? "?")")
-        if api.currentSourceID() == id {
-            dbg("switchTo: 이미 현재 소스, no-op")
+        let sources = api.selectableSources()
+        let current = api.currentSourceID()
+        dbg("switchTo(\(id)) — current=\(current ?? "?")")
+
+        func isCJKV(_ sourceID: String?) -> Bool {
+            guard let sourceID else { return false }
+            return sources.first { $0.id == sourceID }?.isCJKV ?? false
+        }
+
+        // 같은 소스를 다시 요청 = 표시와 실제 IME가 어긋났다는 사용자 신호.
+        // 이때가 유일한 복구 기회이므로 커밋을 강제한다 (습관적 연타는 디바운스로 흡수).
+        if current == id {
+            guard Date() >= nextSameSourceCommit else {
+                dbg("switchTo: 같은 소스 재요청, 디바운스로 생략")
+                return true
+            }
+            nextSameSourceCommit = Date().addingTimeInterval(sameSourceCommitInterval)
+            dbg("switchTo: 같은 소스 재요청 → 강제 커밋")
+            await commit()
             return true
         }
-        let isCJKV = api.selectableSources().first { $0.id == id }?.isCJKV ?? false
+
+        // CJKV로 들어갈 때뿐 아니라 CJKV에서 나올 때도 커밋해야 이전 IME 세션이 풀린다.
+        let needsCommit = isCJKV(id) || isCJKV(current) || pendingCommit
         for attempt in 0..<2 {
             dbg("switchTo: attempt \(attempt) select")
             api.select(id)
-            if isCJKV || pendingCommit {
-                let committed = await api.commitSelection(waitMS: verifyDelayMS)
-                pendingCommit = !committed
-                if !committed { dbg("switchTo: 커밋 생략됨 → pendingCommit") }
+            if needsCommit {
+                await commit()
             }
             if Task.isCancelled { return true }
             if api.currentSourceID() == id { return true }

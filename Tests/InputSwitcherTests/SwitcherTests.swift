@@ -57,6 +57,38 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.selectCalls, 0)
     }
 
+    /// 같은 소스 재요청 = 표시와 실제 IME가 어긋났다는 사용자 신호 → 강제 커밋으로 복구
+    func test_같은_소스_재요청은_강제_커밋() async {
+        let api = MockAPI()
+        _ = await makeSwitcher(api).switchTo("en")
+        XCTAssertEqual(api.commitCalls, 1)
+    }
+
+    /// 습관적 연타가 커밋 폭탄이 되지 않도록 디바운스
+    func test_같은_소스_연타는_커밋_한번만() async {
+        let api = MockAPI()
+        let switcher = makeSwitcher(api)
+        _ = await switcher.switchTo("en")
+        _ = await switcher.switchTo("en")
+        XCTAssertEqual(api.commitCalls, 1)
+    }
+
+    /// CJKV에서 나올 때도 커밋해야 이전 IME 세션이 풀린다 (카카오톡 씹힘 원인)
+    func test_CJKV에서_비CJKV로_나갈_때도_커밋() async {
+        let api = MockAPI()
+        api.current = "ko"
+        let ok = await makeSwitcher(api).switchTo("en")
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.commitCalls, 1)
+    }
+
+    func test_비CJKV끼리_전환은_커밋_없음() async {
+        let api = MockAPI()
+        api.sources.append(InputSource(id: "fr", name: "French"))
+        _ = await makeSwitcher(api).switchTo("fr")
+        XCTAssertEqual(api.commitCalls, 0)
+    }
+
     func test_CJKV_전환은_포커스_커밋을_호출한다() async {
         let api = MockAPI()
         let ok = await makeSwitcher(api).switchTo("ko")
