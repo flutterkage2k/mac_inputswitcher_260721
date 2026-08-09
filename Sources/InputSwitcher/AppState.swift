@@ -129,6 +129,21 @@ final class AppState: ObservableObject {
                 }
             }
         }
+        probeDrift(target: sourceID)
+    }
+
+    /// 전환 후 소스가 몰래 되돌아가는지 계측. 앱이 자기 입력소스를 복원해
+    /// 우리 전환을 덮어쓰는지 판별하기 위한 진단 (전환 태스크와 무관하게 실행).
+    private func probeDrift(target: String) {
+        Task { @MainActor in
+            for delayMS in [400, 1200] {
+                try? await Task.sleep(nanoseconds: UInt64(delayMS) * 1_000_000)
+                let now = api.currentSourceID() ?? "?"
+                if now != target {
+                    dbg("drift(\(delayMS)ms): 목표 \(target) 인데 현재 \(now)")
+                }
+            }
+        }
     }
 
     func registerAll() {

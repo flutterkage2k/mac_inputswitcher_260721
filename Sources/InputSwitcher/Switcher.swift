@@ -29,10 +29,6 @@ final class Switcher {
     /// CJKV가 커밋 없이 선택된 상태(패널 열림 중 전환). 이 상태를 떠나는 전환은
     /// 비CJKV 타깃이라도 커밋해야 실제 IME가 풀린다.
     private var pendingCommit = false
-    /// 같은 소스 재요청 강제 커밋의 디바운스 (연타로 커밋이 쏟아지지 않게)
-    var sameSourceCommitInterval: TimeInterval = 2
-    private var nextSameSourceCommit = Date.distantPast
-
     private func commit() async {
         let committed = await api.commitSelection(waitMS: verifyDelayMS)
         pendingCommit = !committed
@@ -54,21 +50,18 @@ final class Switcher {
             return sources.first { $0.id == sourceID }?.isCJKV ?? false
         }
 
-        // 같은 소스를 다시 요청 = 표시와 실제 IME가 어긋났다는 사용자 신호.
-        // 이때가 유일한 복구 기회이므로 커밋을 강제한다 (습관적 연타는 디바운스로 흡수).
         if current == id {
-            guard Date() >= nextSameSourceCommit else {
-                dbg("switchTo: 같은 소스 재요청, 디바운스로 생략")
-                return true
-            }
-            nextSameSourceCommit = Date().addingTimeInterval(sameSourceCommitInterval)
-            dbg("switchTo: 같은 소스 재요청 → 강제 커밋")
-            await commit()
+            // 사용자가 같은 소스를 다시 요청 = 표시와 실제 IME가 어긋났다는 신호.
+            // 강제 커밋을 시도해봤으나 카카오톡에서 회귀를 일으켜 되돌림. 원인 조사 중.
+            dbg("switchTo: 이미 현재 소스, no-op (desync 신호)")
             return true
         }
 
-        // CJKV로 들어갈 때뿐 아니라 CJKV에서 나올 때도 커밋해야 이전 IME 세션이 풀린다.
-        let needsCommit = isCJKV(id) || isCJKV(current) || pendingCommit
+        let needsCommit = isCJKV(id) || pendingCommit
+        if isCJKV(current) && !needsCommit {
+            // CJKV 이탈 시 커밋은 카카오톡 회귀를 유발해 보류. 빈도만 계측.
+            dbg("switchTo: CJKV 이탈, 커밋 없이 select만")
+        }
         for attempt in 0..<2 {
             dbg("switchTo: attempt \(attempt) select")
             api.select(id)
