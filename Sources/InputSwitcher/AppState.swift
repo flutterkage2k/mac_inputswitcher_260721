@@ -116,6 +116,8 @@ final class AppState: ObservableObject {
     }
 
     private func performSwitch(to sourceID: String) {
+        // 모든 전환에 앱 이름을 남긴다 — 어느 앱에서 desync가 나는지 사후 분석용
+        dbg("app=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")")
         suppressRulesUntil = Date().addingTimeInterval(1.0)
         switchTask?.cancel()
         switchTask = Task { @MainActor in

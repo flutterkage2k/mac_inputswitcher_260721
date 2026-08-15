@@ -7,6 +7,7 @@ final class MockAPI: InputSourceAPI {
     /// select 호출이 이 횟수를 넘어야 실제 반영됨 (0 = 즉시 성공, 99 = select로는 불가)
     var selectSucceedsAfter = 0
     private(set) var selectCalls = 0
+    private(set) var selectedIDs: [String] = []
     var sources = [
         InputSource(id: "en", name: "ABC"),
         InputSource(id: "ko", name: "한글", isCJKV: true),
@@ -22,6 +23,7 @@ final class MockAPI: InputSourceAPI {
     func currentSourceID() -> String? { current }
     @discardableResult func select(_ id: String) -> Bool {
         selectCalls += 1
+        selectedIDs.append(id)
         if selectCalls > selectSucceedsAfter { current = id }
         return true
     }
@@ -50,11 +52,37 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.current, "ko")
     }
 
-    func test_이미_현재_소스면_select_없이_성공() async {
+    /// 같은 소스 재요청 = 앱 IME가 표시와 어긋났다는 신호.
+    /// 실제 소스 변경만이 앱에 전달되므로 다른 소스로 갔다가 되돌아온다.
+    func test_같은_소스_재요청은_왕복으로_복구() async {
         let api = MockAPI()
+        api.current = "ko"
+        let ok = await makeSwitcher(api).switchTo("ko")
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.selectedIDs, ["en", "ko"]) // 중간 경유 후 목표 복귀
+        XCTAssertEqual(api.current, "ko")
+    }
+
+    /// 경유지는 IME 세션을 새로 열지 않는 비CJKV 레이아웃을 우선한다
+    func test_왕복_경유지는_비CJKV_우선() async {
+        let api = MockAPI()
+        api.sources = [
+            InputSource(id: "ko", name: "한글", isCJKV: true),
+            InputSource(id: "ja", name: "일본어", isCJKV: true),
+            InputSource(id: "en", name: "ABC"),
+        ]
+        api.current = "ko"
+        _ = await makeSwitcher(api).switchTo("ko")
+        XCTAssertEqual(api.selectedIDs.first, "en")
+    }
+
+    func test_소스가_하나뿐이면_왕복_없음() async {
+        let api = MockAPI()
+        api.sources = [InputSource(id: "en", name: "ABC")]
+        api.current = "en"
         let ok = await makeSwitcher(api).switchTo("en")
         XCTAssertTrue(ok)
-        XCTAssertEqual(api.selectCalls, 0)
+        XCTAssertTrue(api.selectedIDs.isEmpty)
     }
 
     func test_비CJKV끼리_전환은_커밋_없음() async {

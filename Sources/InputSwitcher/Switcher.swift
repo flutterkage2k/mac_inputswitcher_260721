@@ -29,6 +29,22 @@ final class Switcher {
     /// CJKV가 커밋 없이 선택된 상태(패널 열림 중 전환). 이 상태를 떠나는 전환은
     /// 비CJKV 타깃이라도 커밋해야 실제 IME가 풀린다.
     private var pendingCommit = false
+    /// 경유지 체류 시간. 앱이 소스 변경을 처리할 만큼은 길고, 오타 유발은 안 될 만큼 짧게.
+    var roundTripDelayMS: UInt64 = 60
+
+    private func recoverByRoundTrip(to id: String, sources: [InputSource]) async {
+        // 경유지는 IME 세션을 새로 열지 않는 비CJKV 레이아웃을 우선
+        let detour = sources.first { $0.id != id && !$0.isCJKV } ?? sources.first { $0.id != id }
+        guard let detour else {
+            dbg("switchTo: 같은 소스 재요청이나 경유할 소스 없음")
+            return
+        }
+        dbg("switchTo: 같은 소스 재요청 → 왕복 복구 (\(detour.id) 경유)")
+        api.select(detour.id)
+        try? await Task.sleep(nanoseconds: roundTripDelayMS * 1_000_000)
+        api.select(id)
+    }
+
     private func commit() async {
         let committed = await api.commitSelection(waitMS: verifyDelayMS)
         pendingCommit = !committed
@@ -51,9 +67,11 @@ final class Switcher {
         }
 
         if current == id {
-            // 사용자가 같은 소스를 다시 요청 = 표시와 실제 IME가 어긋났다는 신호.
-            // 강제 커밋을 시도해봤으나 카카오톡에서 회귀를 일으켜 되돌림. 원인 조사 중.
-            dbg("switchTo: 이미 현재 소스, no-op (desync 신호)")
+            // 사용자가 같은 소스를 다시 요청 = TIS는 맞다고 하는데 앱 IME는 이전 언어에
+            // 머물러 있다는 신호. TIS 값이 실제로 '바뀌어야' 앱에 전달되므로,
+            // 다른 소스로 잠깐 갔다가 목표로 되돌아온다 (사용자가 손으로 하던 동작).
+            // 포커스는 건드리지 않는다 — 커밋 방식은 키 삼킴/패널 닫힘을 유발했다.
+            await recoverByRoundTrip(to: id, sources: sources)
             return true
         }
 
