@@ -31,18 +31,29 @@ final class Switcher {
     private var pendingCommit = false
     /// 경유지 체류 시간. 앱이 소스 변경을 처리할 만큼은 길고, 오타 유발은 안 될 만큼 짧게.
     var roundTripDelayMS: UInt64 = 60
+    /// CJKV 진입 후 선제 왕복 여부. 한글 진입 재요청률이 25.7%로 영·일(9%)의 3배라
+    /// 사후 복구만으로는 부족해 진입 직후에도 같은 왕복을 한 번 돌린다.
+    var preemptiveRoundTrip = true
 
-    private func recoverByRoundTrip(to id: String, sources: [InputSource]) async {
+    private func roundTrip(to id: String, sources: [InputSource], reason: String) async {
         // 경유지는 IME 세션을 새로 열지 않는 비CJKV 레이아웃을 우선
         let detour = sources.first { $0.id != id && !$0.isCJKV } ?? sources.first { $0.id != id }
         guard let detour else {
-            dbg("switchTo: 같은 소스 재요청이나 경유할 소스 없음")
+            dbg("switchTo: \(reason) 필요하나 경유할 소스 없음")
             return
         }
-        dbg("switchTo: 같은 소스 재요청 → 왕복 복구 (\(detour.id) 경유)")
+        dbg("switchTo: \(reason) (\(detour.id) 경유)")
         api.select(detour.id)
         try? await Task.sleep(nanoseconds: roundTripDelayMS * 1_000_000)
         api.select(id)
+    }
+
+    /// TIS 수준 전환 성공 후, 앱 IME 세션까지 따라오게 만드는 마무리 단계.
+    private func settle(_ id: String, _ sources: [InputSource]) async -> Bool {
+        guard preemptiveRoundTrip,
+              sources.first(where: { $0.id == id })?.isCJKV == true else { return true }
+        await roundTrip(to: id, sources: sources, reason: "선제 왕복")
+        return true
     }
 
     private func commit() async {
@@ -71,7 +82,7 @@ final class Switcher {
             // 머물러 있다는 신호. TIS 값이 실제로 '바뀌어야' 앱에 전달되므로,
             // 다른 소스로 잠깐 갔다가 목표로 되돌아온다 (사용자가 손으로 하던 동작).
             // 포커스는 건드리지 않는다 — 커밋 방식은 키 삼킴/패널 닫힘을 유발했다.
-            await recoverByRoundTrip(to: id, sources: sources)
+            await roundTrip(to: id, sources: sources, reason: "같은 소스 재요청 → 왕복 복구")
             return true
         }
 
@@ -87,10 +98,10 @@ final class Switcher {
                 await commit()
             }
             if Task.isCancelled { return true }
-            if api.currentSourceID() == id { return true }
+            if api.currentSourceID() == id { return await settle(id, sources) }
             try? await Task.sleep(nanoseconds: verifyDelayMS * 1_000_000)
             if Task.isCancelled { return true }
-            if api.currentSourceID() == id { return true }
+            if api.currentSourceID() == id { return await settle(id, sources) }
         }
         // 폴백: 시스템 "다음 소스 선택" 단축키로 순환. 소스 개수만큼만 시도.
         dbg("switchTo: 검증 실패 → 폴백 진입 (current=\(api.currentSourceID() ?? "?"))")

@@ -47,6 +47,12 @@ final class Settings {
         set { defaults.set(newValue, forKey: "lastNotifiedVersion") }
     }
 
+    /// CJKV 진입 시 선제 왕복 (실험 중, defaults로 끌 수 있음)
+    var preemptiveRoundTrip: Bool {
+        get { defaults.object(forKey: "preemptiveRoundTrip") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "preemptiveRoundTrip") }
+    }
+
     var showHUD: Bool {
         get { defaults.object(forKey: "showHUD") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "showHUD") }

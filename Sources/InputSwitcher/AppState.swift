@@ -24,7 +24,11 @@ final class AppState: ObservableObject {
     private let api = SystemInputSourceAPI()
     private let settings = Settings()
     private let hotkeys = HotkeyManager()
-    private lazy var switcher = Switcher(api: api, verifyDelayMS: settings.verifyDelayMS)
+    private lazy var switcher: Switcher = {
+        let s = Switcher(api: api, verifyDelayMS: settings.verifyDelayMS)
+        s.preemptiveRoundTrip = settings.preemptiveRoundTrip
+        return s
+    }()
     private var switchTask: Task<Void, Never>?
     private var activationObserver: NSObjectProtocol?
     /// 이 시각 전까지 규칙 발동 중지. 커밋 포커스 사이클(규칙 앱→자신→규칙 앱

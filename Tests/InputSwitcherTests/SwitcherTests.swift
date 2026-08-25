@@ -85,6 +85,30 @@ final class SwitcherTests: XCTestCase {
         XCTAssertTrue(api.selectedIDs.isEmpty)
     }
 
+    /// CJKV 진입은 성공 후에도 선제 왕복을 한 번 돌린다 (한글 실패율 25.7% 대응)
+    func test_CJKV_진입은_선제_왕복() async {
+        let api = MockAPI()
+        _ = await makeSwitcher(api).switchTo("ko")
+        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
+        XCTAssertEqual(api.current, "ko")
+    }
+
+    func test_선제_왕복_끄면_평소대로() async {
+        let api = MockAPI()
+        let s = makeSwitcher(api)
+        s.preemptiveRoundTrip = false
+        _ = await s.switchTo("ko")
+        XCTAssertEqual(api.selectedIDs, ["ko"])
+    }
+
+    /// 비CJKV 진입에는 선제 왕복을 걸지 않는다 (실패율 낮고 지연만 늘어남)
+    func test_비CJKV_진입은_선제_왕복_없음() async {
+        let api = MockAPI()
+        api.current = "ko"
+        _ = await makeSwitcher(api).switchTo("en")
+        XCTAssertEqual(api.selectedIDs, ["en"])
+    }
+
     func test_비CJKV끼리_전환은_커밋_없음() async {
         let api = MockAPI()
         api.sources.append(InputSource(id: "fr", name: "French"))
