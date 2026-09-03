@@ -93,6 +93,40 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.current, "ko")
     }
 
+    /// 영어→한글이면 경유지가 또 영어여선 안 된다 (변화 폭이 없어 실패율 높음)
+    func test_선제_왕복_경유지는_출발지를_피한다() async {
+        let api = MockAPI()
+        api.sources = [
+            InputSource(id: "en", name: "ABC"),
+            InputSource(id: "ko", name: "한글", isCJKV: true),
+            InputSource(id: "ja", name: "일본어", isCJKV: true),
+        ]
+        api.current = "en"
+        _ = await makeSwitcher(api).switchTo("ko")
+        XCTAssertEqual(api.selectedIDs, ["ko", "ja", "ko"])
+    }
+
+    /// 일본어→한글이면 출발지가 아닌 비CJKV(영어)를 경유
+    func test_CJKV_출발이면_비CJKV_경유() async {
+        let api = MockAPI()
+        api.sources = [
+            InputSource(id: "en", name: "ABC"),
+            InputSource(id: "ko", name: "한글", isCJKV: true),
+            InputSource(id: "ja", name: "일본어", isCJKV: true),
+        ]
+        api.current = "ja"
+        _ = await makeSwitcher(api).switchTo("ko")
+        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
+    }
+
+    /// 소스가 둘뿐이면 피할 수 없으므로 출발지 경유 허용 (기존 동작)
+    func test_소스_둘뿐이면_출발지_경유() async {
+        let api = MockAPI()
+        api.current = "en"
+        _ = await makeSwitcher(api).switchTo("ko")
+        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
+    }
+
     func test_선제_왕복_끄면_평소대로() async {
         let api = MockAPI()
         let s = makeSwitcher(api)

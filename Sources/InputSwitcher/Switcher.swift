@@ -35,10 +35,19 @@ final class Switcher {
     /// 사후 복구만으로는 부족해 진입 직후에도 같은 왕복을 한 번 돌린다.
     var preemptiveRoundTrip = true
 
-    private func roundTrip(to id: String, sources: [InputSource], reason: String) async {
-        // 경유지는 IME 세션을 새로 열지 않는 비CJKV 레이아웃을 우선
-        let detour = sources.first { $0.id != id && !$0.isCJKV } ?? sources.first { $0.id != id }
-        guard let detour else {
+    /// 경유지 선택. 목표는 물론 출발지도 피한다 — 영어에서 한글로 갈 때 경유지가
+    /// 또 영어면 "영어 갔다 영어 옴"이 되어 변화 폭이 작다. 실제로 영어 출발
+    /// 한글 진입 실패율 9.1% vs 일본어 출발 4.2%. 그 외에는 IME 세션을 새로 열지
+    /// 않는 비CJKV 레이아웃을 우선한다.
+    private func detour(target: String, from: String?, sources: [InputSource]) -> InputSource? {
+        let avoid = Set([target] + (from.map { [$0] } ?? []))
+        return sources.first { !avoid.contains($0.id) && !$0.isCJKV }
+            ?? sources.first { !avoid.contains($0.id) }
+            ?? sources.first { $0.id != target }
+    }
+
+    private func roundTrip(to id: String, from: String?, sources: [InputSource], reason: String) async {
+        guard let detour = detour(target: id, from: from, sources: sources) else {
             dbg("switchTo: \(reason) 필요하나 경유할 소스 없음")
             return
         }
@@ -49,10 +58,10 @@ final class Switcher {
     }
 
     /// TIS 수준 전환 성공 후, 앱 IME 세션까지 따라오게 만드는 마무리 단계.
-    private func settle(_ id: String, _ sources: [InputSource]) async -> Bool {
+    private func settle(_ id: String, from: String?, _ sources: [InputSource]) async -> Bool {
         guard preemptiveRoundTrip,
               sources.first(where: { $0.id == id })?.isCJKV == true else { return true }
-        await roundTrip(to: id, sources: sources, reason: "선제 왕복")
+        await roundTrip(to: id, from: from, sources: sources, reason: "선제 왕복")
         return true
     }
 
@@ -82,7 +91,8 @@ final class Switcher {
             // 머물러 있다는 신호. TIS 값이 실제로 '바뀌어야' 앱에 전달되므로,
             // 다른 소스로 잠깐 갔다가 목표로 되돌아온다 (사용자가 손으로 하던 동작).
             // 포커스는 건드리지 않는다 — 커밋 방식은 키 삼킴/패널 닫힘을 유발했다.
-            await roundTrip(to: id, sources: sources, reason: "같은 소스 재요청 → 왕복 복구")
+            // 복구 왕복은 출발지 개념이 없다 (이미 목표에 있음) — 비CJKV 경유 우선
+            await roundTrip(to: id, from: nil, sources: sources, reason: "같은 소스 재요청 → 왕복 복구")
             return true
         }
 
@@ -98,10 +108,10 @@ final class Switcher {
                 await commit()
             }
             if Task.isCancelled { return true }
-            if api.currentSourceID() == id { return await settle(id, sources) }
+            if api.currentSourceID() == id { return await settle(id, from: current, sources) }
             try? await Task.sleep(nanoseconds: verifyDelayMS * 1_000_000)
             if Task.isCancelled { return true }
-            if api.currentSourceID() == id { return await settle(id, sources) }
+            if api.currentSourceID() == id { return await settle(id, from: current, sources) }
         }
         // 폴백: 시스템 "다음 소스 선택" 단축키로 순환. 소스 개수만큼만 시도.
         dbg("switchTo: 검증 실패 → 폴백 진입 (current=\(api.currentSourceID() ?? "?"))")
