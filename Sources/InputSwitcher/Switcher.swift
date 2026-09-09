@@ -35,15 +35,14 @@ final class Switcher {
     /// 사후 복구만으로는 부족해 진입 직후에도 같은 왕복을 한 번 돌린다.
     var preemptiveRoundTrip = true
 
-    /// 경유지 선택. 목표는 물론 출발지도 피한다 — 영어에서 한글로 갈 때 경유지가
-    /// 또 영어면 "영어 갔다 영어 옴"이 되어 변화 폭이 작다. 실제로 영어 출발
-    /// 한글 진입 실패율 9.1% vs 일본어 출발 4.2%. 그 외에는 IME 세션을 새로 열지
-    /// 않는 비CJKV 레이아웃을 우선한다.
+    /// 경유지 선택. 절대 규칙: CJKV는 경유지로 쓰지 않는다.
+    /// 일본어를 경유하게 했더니 60ms 사이에 들어간 타이핑이 한자로 변환돼
+    /// 사용자가 지워야 하는 상황이 생겼다 — 전환이 씹히는 것보다 나쁜 결과다.
+    /// 영문 레이아웃은 조합이 없어 최악이라도 알파벳 몇 글자가 스치는 정도다.
+    /// 그 안에서만 출발지를 피하고, 피할 수 없으면 출발지라도 쓴다.
     private func detour(target: String, from: String?, sources: [InputSource]) -> InputSource? {
-        let avoid = Set([target] + (from.map { [$0] } ?? []))
-        return sources.first { !avoid.contains($0.id) && !$0.isCJKV }
-            ?? sources.first { !avoid.contains($0.id) }
-            ?? sources.first { $0.id != target }
+        let plain = sources.filter { !$0.isCJKV && $0.id != target }
+        return plain.first { $0.id != from } ?? plain.first
     }
 
     private func roundTrip(to id: String, from: String?, sources: [InputSource], reason: String) async {

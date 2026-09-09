@@ -93,8 +93,9 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.current, "ko")
     }
 
-    /// 영어→한글이면 경유지가 또 영어여선 안 된다 (변화 폭이 없어 실패율 높음)
-    func test_선제_왕복_경유지는_출발지를_피한다() async {
+    /// 경유지로 CJKV를 쓰면 그 사이 타이핑이 한자로 변환돼 사용자가 지워야 한다.
+    /// 절대 금지 — 다른 비CJKV가 없으면 출발지(영어)라도 경유한다.
+    func test_경유지로_CJKV를_쓰지_않는다() async {
         let api = MockAPI()
         api.sources = [
             InputSource(id: "en", name: "ABC"),
@@ -103,7 +104,32 @@ final class SwitcherTests: XCTestCase {
         ]
         api.current = "en"
         _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.selectedIDs, ["ko", "ja", "ko"])
+        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
+    }
+
+    /// 비CJKV가 여럿이면 그 안에서 출발지를 피한다
+    func test_비CJKV가_여럿이면_출발지_회피() async {
+        let api = MockAPI()
+        api.sources = [
+            InputSource(id: "en", name: "ABC"),
+            InputSource(id: "fr", name: "French"),
+            InputSource(id: "ko", name: "한글", isCJKV: true),
+        ]
+        api.current = "en"
+        _ = await makeSwitcher(api).switchTo("ko")
+        XCTAssertEqual(api.selectedIDs, ["ko", "fr", "ko"])
+    }
+
+    /// 비CJKV 경유지가 아예 없으면 왕복을 건너뛴다 (CJKV 경유보다 안 하는 게 낫다)
+    func test_비CJKV_경유지_없으면_왕복_생략() async {
+        let api = MockAPI()
+        api.sources = [
+            InputSource(id: "ko", name: "한글", isCJKV: true),
+            InputSource(id: "ja", name: "일본어", isCJKV: true),
+        ]
+        api.current = "ja"
+        _ = await makeSwitcher(api).switchTo("ko")
+        XCTAssertEqual(api.selectedIDs, ["ko"])
     }
 
     /// 일본어→한글이면 출발지가 아닌 비CJKV(영어)를 경유
