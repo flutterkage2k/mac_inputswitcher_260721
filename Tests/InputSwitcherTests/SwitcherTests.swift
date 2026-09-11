@@ -176,9 +176,33 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.commitCalls, 0)
     }
 
-    func test_CJKV_전환은_포커스_커밋을_호출한다() async {
+    /// 왕복 모드에서는 글자를 가로채는 커밋 창을 띄우지 않는다
+    func test_왕복_모드에서는_포커스_커밋을_쓰지_않는다() async {
         let api = MockAPI()
         let ok = await makeSwitcher(api).switchTo("ko")
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.commitCalls, 0)
+        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
+    }
+
+    /// 왕복 도중 다음 전환이 끼어들면, 끊긴 왕복은 뒤늦게 복귀하면 안 된다
+    func test_끊긴_왕복은_뒤늦게_복귀하지_않는다() async {
+        let api = MockAPI()
+        let switcher = makeSwitcher(api)
+        switcher.roundTripDelayMS = 50
+        let task = Task { await switcher.switchTo("ko") }
+        try? await Task.sleep(nanoseconds: 10_000_000) // 경유지(en)에서 대기 중일 때 취소
+        task.cancel()
+        _ = await task.value
+        XCTAssertEqual(api.selectedIDs, ["ko", "en"]) // 복귀 select("ko") 없음
+    }
+
+    /// 선제 왕복을 끄면 예전 커밋 방식으로 돌아간다
+    func test_CJKV_전환은_포커스_커밋을_호출한다() async {
+        let api = MockAPI()
+        let switcher = makeSwitcher(api)
+        switcher.preemptiveRoundTrip = false
+        let ok = await switcher.switchTo("ko")
         XCTAssertTrue(ok)
         XCTAssertEqual(api.commitCalls, 1)
     }
@@ -194,6 +218,7 @@ final class SwitcherTests: XCTestCase {
     func test_커밋_생략된_CJKV_이후에는_비CJKV_전환도_커밋한다() async {
         let api = MockAPI()
         let switcher = makeSwitcher(api)
+        switcher.preemptiveRoundTrip = false // 커밋 방식에서만 해당
         api.commitRuns = false               // 패널 열림: 한글 선택, 커밋 생략
         _ = await switcher.switchTo("ko")
         XCTAssertEqual(api.commitCalls, 1)

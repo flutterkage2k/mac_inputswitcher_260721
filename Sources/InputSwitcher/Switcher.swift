@@ -33,6 +33,7 @@ final class Switcher {
     var roundTripDelayMS: UInt64 = 60
     /// CJKV 진입 후 선제 왕복 여부. 한글 진입 재요청률이 25.7%로 영·일(9%)의 3배라
     /// 사후 복구만으로는 부족해 진입 직후에도 같은 왕복을 한 번 돌린다.
+    /// 켜져 있으면 포커스 커밋을 대체한다 (끄면 예전 커밋 방식으로 돌아감).
     var preemptiveRoundTrip = true
 
     /// 경유지 선택. 절대 규칙: CJKV는 경유지로 쓰지 않는다.
@@ -46,6 +47,7 @@ final class Switcher {
     }
 
     private func roundTrip(to id: String, from: String?, sources: [InputSource], reason: String) async {
+        guard !Task.isCancelled else { return }
         guard let detour = detour(target: id, from: from, sources: sources) else {
             dbg("switchTo: \(reason) 필요하나 경유할 소스 없음")
             return
@@ -53,6 +55,12 @@ final class Switcher {
         dbg("switchTo: \(reason) (\(detour.id) 경유)")
         api.select(detour.id)
         try? await Task.sleep(nanoseconds: roundTripDelayMS * 1_000_000)
+        // 다음 전환이 이 왕복을 취소했다면 복귀하지 않는다. 뒤늦은 복귀 select가
+        // 새 전환과 엉켜 검증 실패, 재시도, 커밋 창 재등장으로 이어졌다.
+        guard !Task.isCancelled else {
+            dbg("switchTo: \(reason) 취소됨, 복귀 생략")
+            return
+        }
         api.select(id)
     }
 
@@ -95,7 +103,10 @@ final class Switcher {
             return true
         }
 
-        let needsCommit = isCJKV(id) || pendingCommit
+        // 선제 왕복 모드에서는 포커스 커밋(보이지 않는 창이 0.15초 동안 키 입력을 받는
+        // 방식)을 쓰지 않는다. 그 창이 사용자가 친 글자를 가로채 버리는 게 실측됐다
+        // (dev4 1.8일간 11회). 왕복은 입력소스 값만 바꾸고 창을 띄우지 않아 글자를 먹을 수 없다.
+        let needsCommit = (isCJKV(id) && !preemptiveRoundTrip) || pendingCommit
         if isCJKV(current) && !needsCommit {
             // CJKV 이탈 시 커밋은 카카오톡 회귀를 유발해 보류. 빈도만 계측.
             dbg("switchTo: CJKV 이탈, 커밋 없이 select만")
