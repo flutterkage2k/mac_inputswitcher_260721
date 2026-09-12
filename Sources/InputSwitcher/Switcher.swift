@@ -31,10 +31,13 @@ final class Switcher {
     private var pendingCommit = false
     /// 경유지 체류 시간. 앱이 소스 변경을 처리할 만큼은 길고, 오타 유발은 안 될 만큼 짧게.
     var roundTripDelayMS: UInt64 = 60
-    /// CJKV 진입 후 선제 왕복 여부. 한글 진입 재요청률이 25.7%로 영·일(9%)의 3배라
-    /// 사후 복구만으로는 부족해 진입 직후에도 같은 왕복을 한 번 돌린다.
-    /// 켜져 있으면 포커스 커밋을 대체한다 (끄면 예전 커밋 방식으로 돌아감).
-    var preemptiveRoundTrip = true
+    /// 왕복 사용 여부 (진입 직후 + 같은 소스 재입력 시 복구, 둘 다).
+    /// 끄면 입력소스만 단순히 바꾸고 아무 뒤처리도 하지 않는다.
+    /// 왕복은 조합 중인 한글을 깨뜨려 자소 분리를 일으킬 수 있어 검증이 필요하다.
+    var roundTripEnabled = true
+    /// 포커스 커밋(보이지 않는 창이 키 입력을 받는 방식) 사용 여부.
+    /// 사용자가 친 글자를 가로채는 게 실측돼 기본값은 꺼짐. 예전 방식 복원용.
+    var focusCommitEnabled = false
 
     /// 경유지 선택. 절대 규칙: CJKV는 경유지로 쓰지 않는다.
     /// 일본어를 경유하게 했더니 60ms 사이에 들어간 타이핑이 한자로 변환돼
@@ -66,7 +69,7 @@ final class Switcher {
 
     /// TIS 수준 전환 성공 후, 앱 IME 세션까지 따라오게 만드는 마무리 단계.
     private func settle(_ id: String, from: String?, _ sources: [InputSource]) async -> Bool {
-        guard preemptiveRoundTrip,
+        guard roundTripEnabled,
               sources.first(where: { $0.id == id })?.isCJKV == true else { return true }
         await roundTrip(to: id, from: from, sources: sources, reason: "선제 왕복")
         return true
@@ -99,14 +102,17 @@ final class Switcher {
             // 다른 소스로 잠깐 갔다가 목표로 되돌아온다 (사용자가 손으로 하던 동작).
             // 포커스는 건드리지 않는다 — 커밋 방식은 키 삼킴/패널 닫힘을 유발했다.
             // 복구 왕복은 출발지 개념이 없다 (이미 목표에 있음) — 비CJKV 경유 우선
+            guard roundTripEnabled else {
+                dbg("switchTo: 이미 현재 소스, no-op (왕복 꺼짐)")
+                return true
+            }
             await roundTrip(to: id, from: nil, sources: sources, reason: "같은 소스 재요청 → 왕복 복구")
             return true
         }
 
-        // 선제 왕복 모드에서는 포커스 커밋(보이지 않는 창이 0.15초 동안 키 입력을 받는
-        // 방식)을 쓰지 않는다. 그 창이 사용자가 친 글자를 가로채 버리는 게 실측됐다
-        // (dev4 1.8일간 11회). 왕복은 입력소스 값만 바꾸고 창을 띄우지 않아 글자를 먹을 수 없다.
-        let needsCommit = (isCJKV(id) && !preemptiveRoundTrip) || pendingCommit
+        // 포커스 커밋은 기본으로 쓰지 않는다 — 그 창이 사용자가 친 글자를 가로채는 게
+        // 실측됐다 (dev4 1.8일간 11회).
+        let needsCommit = (focusCommitEnabled && isCJKV(id)) || pendingCommit
         if isCJKV(current) && !needsCommit {
             // CJKV 이탈 시 커밋은 카카오톡 회귀를 유발해 보류. 빈도만 계측.
             dbg("switchTo: CJKV 이탈, 커밋 없이 select만")

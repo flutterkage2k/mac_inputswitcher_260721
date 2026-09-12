@@ -26,7 +26,8 @@ final class AppState: ObservableObject {
     private let hotkeys = HotkeyManager()
     private lazy var switcher: Switcher = {
         let s = Switcher(api: api, verifyDelayMS: settings.verifyDelayMS)
-        s.preemptiveRoundTrip = settings.preemptiveRoundTrip
+        s.roundTripEnabled = settings.roundTripEnabled
+        s.focusCommitEnabled = settings.focusCommitEnabled
         return s
     }()
     private var switchTask: Task<Void, Never>?
@@ -42,6 +43,9 @@ final class AppState: ObservableObject {
         mappings = settings.mappings
         appRules = settings.appRules
         currentID = api.currentSourceID()
+        // 어떤 설정으로 모은 기록인지 로그 자체에 남긴다 (사후 분석에서 모드 혼동 방지)
+        dbg("mode: v\(appVersion) roundTrip=\(settings.roundTripEnabled) "
+            + "focusCommit=\(settings.focusCommitEnabled) delay=\(settings.verifyDelayMS)ms")
         registerAll()
         observeAppActivations()
         scheduleUpdateChecks()

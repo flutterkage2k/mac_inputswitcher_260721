@@ -153,12 +153,24 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
     }
 
-    func test_선제_왕복_끄면_평소대로() async {
+    func test_왕복_끄면_단순_전환만() async {
         let api = MockAPI()
         let s = makeSwitcher(api)
-        s.preemptiveRoundTrip = false
+        s.roundTripEnabled = false
         _ = await s.switchTo("ko")
         XCTAssertEqual(api.selectedIDs, ["ko"])
+        XCTAssertEqual(api.commitCalls, 0)
+    }
+
+    /// 왕복을 끄면 같은 소스 재입력은 아무 일도 하지 않는다 (조합 깨뜨릴 일 없음)
+    func test_왕복_끄면_같은_소스_재입력은_무동작() async {
+        let api = MockAPI()
+        api.current = "ko"
+        let s = makeSwitcher(api)
+        s.roundTripEnabled = false
+        let ok = await s.switchTo("ko")
+        XCTAssertTrue(ok)
+        XCTAssertTrue(api.selectedIDs.isEmpty)
     }
 
     /// 비CJKV 진입에는 선제 왕복을 걸지 않는다 (실패율 낮고 지연만 늘어남)
@@ -197,11 +209,12 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.selectedIDs, ["ko", "en"]) // 복귀 select("ko") 없음
     }
 
-    /// 선제 왕복을 끄면 예전 커밋 방식으로 돌아간다
+    /// 예전 커밋 방식 복원 모드
     func test_CJKV_전환은_포커스_커밋을_호출한다() async {
         let api = MockAPI()
         let switcher = makeSwitcher(api)
-        switcher.preemptiveRoundTrip = false
+        switcher.roundTripEnabled = false
+        switcher.focusCommitEnabled = true
         let ok = await switcher.switchTo("ko")
         XCTAssertTrue(ok)
         XCTAssertEqual(api.commitCalls, 1)
@@ -218,7 +231,8 @@ final class SwitcherTests: XCTestCase {
     func test_커밋_생략된_CJKV_이후에는_비CJKV_전환도_커밋한다() async {
         let api = MockAPI()
         let switcher = makeSwitcher(api)
-        switcher.preemptiveRoundTrip = false // 커밋 방식에서만 해당
+        switcher.roundTripEnabled = false     // 커밋 방식에서만 해당
+        switcher.focusCommitEnabled = true
         api.commitRuns = false               // 패널 열림: 한글 선택, 커밋 생략
         _ = await switcher.switchTo("ko")
         XCTAssertEqual(api.commitCalls, 1)

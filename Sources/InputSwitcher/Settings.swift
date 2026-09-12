@@ -47,10 +47,16 @@ final class Settings {
         set { defaults.set(newValue, forKey: "lastNotifiedVersion") }
     }
 
-    /// CJKV 진입 시 선제 왕복 (실험 중). 끄면 예전 포커스 커밋 방식으로 돌아간다.
-    var preemptiveRoundTrip: Bool {
-        get { defaults.object(forKey: "preemptiveRoundTrip") as? Bool ?? true }
-        set { defaults.set(newValue, forKey: "preemptiveRoundTrip") }
+    /// 왕복 사용 여부 (기본 켜짐). 끄면 입력소스만 단순히 바꾼다.
+    var roundTripEnabled: Bool {
+        get { defaults.object(forKey: "roundTripEnabled") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "roundTripEnabled") }
+    }
+
+    /// 포커스 커밋 사용 여부 (기본 꺼짐). 예전 방식 복원용.
+    var focusCommitEnabled: Bool {
+        get { defaults.object(forKey: "focusCommitEnabled") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "focusCommitEnabled") }
     }
 
     var showHUD: Bool {
