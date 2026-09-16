@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 SRC="$HOME/Library/Logs/InputSwitcher.log"
 DEST="logs"
 mkdir -p "$DEST"
-[ -f "$SRC" ] && cp "$SRC" "$DEST/$(date +%Y%m%d).log"
-[ -f "$SRC.1" ] && cp "$SRC.1" "$DEST/$(date +%Y%m%d)-prev.log"
+cp "$SRC" "$DEST/$(date +%Y%m%d).log" 2>/dev/null || true
+cp "$SRC.1" "$DEST/$(date +%Y%m%d)-prev.log" 2>/dev/null || true
 # 60일 넘은 스냅샷은 정리
 find "$DEST" -name '*.log' -mtime +60 -delete

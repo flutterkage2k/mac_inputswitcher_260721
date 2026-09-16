@@ -52,186 +52,53 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.current, "ko")
     }
 
-    /// 같은 소스 재요청 = 앱 IME가 표시와 어긋났다는 신호.
-    /// 실제 소스 변경만이 앱에 전달되므로 다른 소스로 갔다가 되돌아온다.
-    func test_같은_소스_재요청은_왕복으로_복구() async {
-        let api = MockAPI()
-        api.current = "ko"
-        let ok = await makeSwitcher(api).switchTo("ko")
-        XCTAssertTrue(ok)
-        XCTAssertEqual(api.selectedIDs, ["en", "ko"]) // 중간 경유 후 목표 복귀
-        XCTAssertEqual(api.current, "ko")
-    }
-
-    /// 경유지는 IME 세션을 새로 열지 않는 비CJKV 레이아웃을 우선한다
-    func test_왕복_경유지는_비CJKV_우선() async {
-        let api = MockAPI()
-        api.sources = [
-            InputSource(id: "ko", name: "한글", isCJKV: true),
-            InputSource(id: "ja", name: "일본어", isCJKV: true),
-            InputSource(id: "en", name: "ABC"),
-        ]
-        api.current = "ko"
-        _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.selectedIDs.first, "en")
-    }
-
-    func test_소스가_하나뿐이면_왕복_없음() async {
-        let api = MockAPI()
-        api.sources = [InputSource(id: "en", name: "ABC")]
-        api.current = "en"
-        let ok = await makeSwitcher(api).switchTo("en")
-        XCTAssertTrue(ok)
-        XCTAssertTrue(api.selectedIDs.isEmpty)
-    }
-
-    /// CJKV 진입은 성공 후에도 선제 왕복을 한 번 돌린다 (한글 실패율 25.7% 대응)
-    func test_CJKV_진입은_선제_왕복() async {
+    /// 한글 진입도 select 한 번으로 끝난다. 예전의 "왕복"(다른 소스를 경유했다
+    /// 돌아오기)은 조합 중인 한글을 끊어 자소 분리를 일으켜 제거했다.
+    func test_CJKV_진입도_select_한_번() async {
         let api = MockAPI()
         _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
-        XCTAssertEqual(api.current, "ko")
-    }
-
-    /// 경유지로 CJKV를 쓰면 그 사이 타이핑이 한자로 변환돼 사용자가 지워야 한다.
-    /// 절대 금지 — 다른 비CJKV가 없으면 출발지(영어)라도 경유한다.
-    func test_경유지로_CJKV를_쓰지_않는다() async {
-        let api = MockAPI()
-        api.sources = [
-            InputSource(id: "en", name: "ABC"),
-            InputSource(id: "ko", name: "한글", isCJKV: true),
-            InputSource(id: "ja", name: "일본어", isCJKV: true),
-        ]
-        api.current = "en"
-        _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
-    }
-
-    /// 비CJKV가 여럿이면 그 안에서 출발지를 피한다
-    func test_비CJKV가_여럿이면_출발지_회피() async {
-        let api = MockAPI()
-        api.sources = [
-            InputSource(id: "en", name: "ABC"),
-            InputSource(id: "fr", name: "French"),
-            InputSource(id: "ko", name: "한글", isCJKV: true),
-        ]
-        api.current = "en"
-        _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.selectedIDs, ["ko", "fr", "ko"])
-    }
-
-    /// 비CJKV 경유지가 아예 없으면 왕복을 건너뛴다 (CJKV 경유보다 안 하는 게 낫다)
-    func test_비CJKV_경유지_없으면_왕복_생략() async {
-        let api = MockAPI()
-        api.sources = [
-            InputSource(id: "ko", name: "한글", isCJKV: true),
-            InputSource(id: "ja", name: "일본어", isCJKV: true),
-        ]
-        api.current = "ja"
-        _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.selectedIDs, ["ko"])
-    }
-
-    /// 일본어→한글이면 출발지가 아닌 비CJKV(영어)를 경유
-    func test_CJKV_출발이면_비CJKV_경유() async {
-        let api = MockAPI()
-        api.sources = [
-            InputSource(id: "en", name: "ABC"),
-            InputSource(id: "ko", name: "한글", isCJKV: true),
-            InputSource(id: "ja", name: "일본어", isCJKV: true),
-        ]
-        api.current = "ja"
-        _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
-    }
-
-    /// 소스가 둘뿐이면 피할 수 없으므로 출발지 경유 허용 (기존 동작)
-    func test_소스_둘뿐이면_출발지_경유() async {
-        let api = MockAPI()
-        api.current = "en"
-        _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
-    }
-
-    func test_왕복_끄면_단순_전환만() async {
-        let api = MockAPI()
-        let s = makeSwitcher(api)
-        s.roundTripEnabled = false
-        _ = await s.switchTo("ko")
         XCTAssertEqual(api.selectedIDs, ["ko"])
         XCTAssertEqual(api.commitCalls, 0)
     }
 
-    /// 왕복을 끄면 같은 소스 재입력은 아무 일도 하지 않는다 (조합 깨뜨릴 일 없음)
-    func test_왕복_끄면_같은_소스_재입력은_무동작() async {
+    /// 같은 소스를 다시 눌러도 입력소스를 건드리지 않는다 (조합을 깨뜨리지 않기 위해)
+    func test_같은_소스_재입력은_무동작() async {
         let api = MockAPI()
         api.current = "ko"
-        let s = makeSwitcher(api)
-        s.roundTripEnabled = false
-        let ok = await s.switchTo("ko")
-        XCTAssertTrue(ok)
-        XCTAssertTrue(api.selectedIDs.isEmpty)
-    }
-
-    /// 비CJKV 진입에는 선제 왕복을 걸지 않는다 (실패율 낮고 지연만 늘어남)
-    func test_비CJKV_진입은_선제_왕복_없음() async {
-        let api = MockAPI()
-        api.current = "ko"
-        _ = await makeSwitcher(api).switchTo("en")
-        XCTAssertEqual(api.selectedIDs, ["en"])
-    }
-
-    func test_비CJKV끼리_전환은_커밋_없음() async {
-        let api = MockAPI()
-        api.sources.append(InputSource(id: "fr", name: "French"))
-        _ = await makeSwitcher(api).switchTo("fr")
-        XCTAssertEqual(api.commitCalls, 0)
-    }
-
-    /// 왕복 모드에서는 글자를 가로채는 커밋 창을 띄우지 않는다
-    func test_왕복_모드에서는_포커스_커밋을_쓰지_않는다() async {
-        let api = MockAPI()
         let ok = await makeSwitcher(api).switchTo("ko")
         XCTAssertTrue(ok)
+        XCTAssertTrue(api.selectedIDs.isEmpty)
         XCTAssertEqual(api.commitCalls, 0)
-        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])
     }
 
-    /// 왕복 도중 다음 전환이 끼어들면, 끊긴 왕복은 뒤늦게 복귀하면 안 된다
-    func test_끊긴_왕복은_뒤늦게_복귀하지_않는다() async {
+    func test_기본값은_포커스_커밋을_쓰지_않는다() async {
         let api = MockAPI()
-        let switcher = makeSwitcher(api)
-        switcher.roundTripDelayMS = 50
-        let task = Task { await switcher.switchTo("ko") }
-        try? await Task.sleep(nanoseconds: 10_000_000) // 경유지(en)에서 대기 중일 때 취소
-        task.cancel()
-        _ = await task.value
-        XCTAssertEqual(api.selectedIDs, ["ko", "en"]) // 복귀 select("ko") 없음
+        _ = await makeSwitcher(api).switchTo("ko")
+        XCTAssertEqual(api.commitCalls, 0)
     }
 
-    /// 예전 커밋 방식 복원 모드
-    func test_CJKV_전환은_포커스_커밋을_호출한다() async {
+    /// 예전 커밋 방식 복원 모드 (기본 꺼짐)
+    func test_포커스_커밋_켜면_CJKV_진입에_커밋() async {
         let api = MockAPI()
         let switcher = makeSwitcher(api)
-        switcher.roundTripEnabled = false
         switcher.focusCommitEnabled = true
         let ok = await switcher.switchTo("ko")
         XCTAssertTrue(ok)
         XCTAssertEqual(api.commitCalls, 1)
     }
 
-    func test_비CJKV_전환은_포커스_커밋을_호출하지_않는다() async {
+    func test_포커스_커밋_켜도_비CJKV는_커밋_안함() async {
         let api = MockAPI()
         api.sources.append(InputSource(id: "fr", name: "French"))
-        let ok = await makeSwitcher(api).switchTo("fr")
-        XCTAssertTrue(ok)
+        let switcher = makeSwitcher(api)
+        switcher.focusCommitEnabled = true
+        _ = await switcher.switchTo("fr")
         XCTAssertEqual(api.commitCalls, 0)
     }
 
     func test_커밋_생략된_CJKV_이후에는_비CJKV_전환도_커밋한다() async {
         let api = MockAPI()
         let switcher = makeSwitcher(api)
-        switcher.roundTripEnabled = false     // 커밋 방식에서만 해당
         switcher.focusCommitEnabled = true
         api.commitRuns = false               // 패널 열림: 한글 선택, 커밋 생략
         _ = await switcher.switchTo("ko")
