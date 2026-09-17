@@ -22,3 +22,16 @@ func dbg(_ msg: String) {
         try? line.write(to: url, atomically: true, encoding: .utf8)
     }
 }
+
+/// 입력소스 변경이 우리 전환의 결과인지, 외부 요인(시스템 단축키, Caps Lock,
+/// 메뉴 클릭, 다른 앱)인지 분류한다. 로그 분석용 태그를 반환.
+/// - ours: 우리가 요청한 값으로 1초 내 바뀜
+/// - external-after-ours: 우리 전환 후 1.5초 내에 다른 값으로 바뀜 (되돌림 의심)
+/// - external: 그 외
+func classifyChange(newID: String, lastTarget: String?, lastSwitchAt: Date,
+                    now: Date = Date()) -> String {
+    let elapsed = now.timeIntervalSince(lastSwitchAt)
+    if newID == lastTarget, elapsed <= 1.0 { return "ours" }
+    if lastTarget != nil, newID != lastTarget, elapsed <= 1.5 { return "external-after-ours" }
+    return "external"
+}

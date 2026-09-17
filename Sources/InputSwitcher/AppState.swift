@@ -1,4 +1,5 @@
 import SwiftUI
+import Carbon
 import UserNotifications
 
 @MainActor
@@ -35,6 +36,11 @@ final class AppState: ObservableObject {
     /// 재활성화, 수백 ms 내)이 규칙을 재발동해 루프가 되는 것을 막는다.
     // ponytail: 시간 창 방식 — 전환 직후 1초 내 규칙 앱 진입은 자동 전환 안 됨
     private var suppressRulesUntil = Date.distantPast
+    // 입력소스 변경 알림 분류용: 우리가 마지막으로 요청한 전환
+    private var sourceChangeObserver: NSObjectProtocol?
+    private var lastSwitchTarget: String?
+    private var lastSwitchAt = Date.distantPast
+    private var lastLoggedSourceID: String?
 
     init() {
         showHUD = Settings().showHUD
@@ -47,6 +53,7 @@ final class AppState: ObservableObject {
             + "delay=\(settings.verifyDelayMS)ms")
         registerAll()
         observeAppActivations()
+        observeSourceChanges()
         scheduleUpdateChecks()
     }
 
@@ -98,6 +105,29 @@ final class AppState: ObservableObject {
         try? await center.add(request)
     }
 
+    /// macOS의 입력소스 변경 알림을 구독해 모든 변경을 기록한다. 우리 전환뿐 아니라
+    /// 시스템 단축키·Caps Lock·메뉴 클릭·다른 앱이 바꾼 것도 잡힌다. 지금까지 로그에는
+    /// 우리가 바꾼 것만 남아, 전환 직후 누군가 되돌리는 경우를 볼 수 없었다.
+    /// (HangulSync의 감지 방식에서 착안)
+    private func observeSourceChanges() {
+        sourceChangeObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.sourceDidChange() }
+        }
+    }
+
+    private func sourceDidChange() {
+        // 같은 변경에 알림이 두 번 오는 경우가 있어 직전 기록과 같으면 건너뛴다
+        guard let id = api.currentSourceID(), id != lastLoggedSourceID else { return }
+        lastLoggedSourceID = id
+        currentID = id
+        let tag = classifyChange(newID: id, lastTarget: lastSwitchTarget, lastSwitchAt: lastSwitchAt)
+        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+        dbg("changed: \(id) [\(tag)] app=\(app)")
+    }
+
     private func observeAppActivations() {
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -126,6 +156,8 @@ final class AppState: ObservableObject {
         // 모든 전환에 앱 이름을 남긴다 — 어느 앱에서 desync가 나는지 사후 분석용
         dbg("app=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")")
         suppressRulesUntil = Date().addingTimeInterval(1.0)
+        lastSwitchTarget = sourceID
+        lastSwitchAt = Date()
         switchTask?.cancel()
         switchTask = Task { @MainActor in
             let ok = await switcher.switchTo(sourceID)
@@ -135,21 +167,6 @@ final class AppState: ObservableObject {
                 if ok, showHUD,
                    let name = sources.first(where: { $0.id == sourceID })?.name {
                     HUD.shared.show(name)
-                }
-            }
-        }
-        probeDrift(target: sourceID)
-    }
-
-    /// 전환 후 소스가 몰래 되돌아가는지 계측. 앱이 자기 입력소스를 복원해
-    /// 우리 전환을 덮어쓰는지 판별하기 위한 진단 (전환 태스크와 무관하게 실행).
-    private func probeDrift(target: String) {
-        Task { @MainActor in
-            for delayMS in [400, 1200] {
-                try? await Task.sleep(nanoseconds: UInt64(delayMS) * 1_000_000)
-                let now = api.currentSourceID() ?? "?"
-                if now != target {
-                    dbg("drift(\(delayMS)ms): 목표 \(target) 인데 현재 \(now)")
                 }
             }
         }
