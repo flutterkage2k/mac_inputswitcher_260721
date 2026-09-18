@@ -61,14 +61,54 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.commitCalls, 0)
     }
 
-    /// 같은 소스를 다시 눌러도 입력소스를 건드리지 않는다 (조합을 깨뜨리지 않기 위해)
-    func test_같은_소스_재입력은_무동작() async {
+    /// 같은 소스 재입력 = "HUD는 한글인데 영어로 쳐진다"는 사용자 신호.
+    /// 사용자가 손으로 하던 복구(영어로 갔다가 한글로)를 대신한다.
+    func test_같은_소스_재입력은_복구_왕복() async {
         let api = MockAPI()
         api.current = "ko"
         let ok = await makeSwitcher(api).switchTo("ko")
         XCTAssertTrue(ok)
-        XCTAssertTrue(api.selectedIDs.isEmpty)
+        XCTAssertEqual(api.selectedIDs, ["en", "ko"])
+        XCTAssertEqual(api.current, "ko")
         XCTAssertEqual(api.commitCalls, 0)
+    }
+
+    /// 경유지는 조합이 없는 비CJKV 레이아웃만. CJKV 경유는 그 사이 타이핑을 한자로 바꾼다.
+    func test_복구_경유지는_비CJKV만() async {
+        let api = MockAPI()
+        api.sources = [
+            InputSource(id: "ko", name: "한글", isCJKV: true),
+            InputSource(id: "ja", name: "일본어", isCJKV: true),
+            InputSource(id: "en", name: "ABC"),
+        ]
+        api.current = "ko"
+        _ = await makeSwitcher(api).switchTo("ko")
+        XCTAssertEqual(api.selectedIDs, ["en", "ko"])
+    }
+
+    func test_비CJKV_경유지_없으면_재입력은_무동작() async {
+        let api = MockAPI()
+        api.sources = [
+            InputSource(id: "ko", name: "한글", isCJKV: true),
+            InputSource(id: "ja", name: "일본어", isCJKV: true),
+        ]
+        api.current = "ko"
+        let ok = await makeSwitcher(api).switchTo("ko")
+        XCTAssertTrue(ok)
+        XCTAssertTrue(api.selectedIDs.isEmpty)
+    }
+
+    /// 경유 중 다음 전환이 끼어들면 뒤늦게 복귀하지 않는다 (새 전환과 엉킴 방지)
+    func test_복구_왕복_취소되면_복귀_생략() async {
+        let api = MockAPI()
+        api.current = "ko"
+        let switcher = makeSwitcher(api)
+        switcher.recoveryDetourMS = 50
+        let task = Task { await switcher.switchTo("ko") }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        task.cancel()
+        _ = await task.value
+        XCTAssertEqual(api.selectedIDs, ["en"])
     }
 
     func test_기본값은_포커스_커밋을_쓰지_않는다() async {
