@@ -40,6 +40,7 @@ final class AppState: ObservableObject {
     private var sourceChangeObserver: NSObjectProtocol?
     private var lastSwitchTarget: String?
     private var lastSwitchAt = Date.distantPast
+    private var lastSwitchWasRepress = false
     private var lastLoggedSourceID: String?
 
     init() {
@@ -49,8 +50,8 @@ final class AppState: ObservableObject {
         appRules = settings.appRules
         currentID = api.currentSourceID()
         // 어떤 설정으로 모은 기록인지 로그 자체에 남긴다 (사후 분석에서 모드 혼동 방지)
-        dbg("mode: v\(appVersion) focusCommit=\(settings.focusCommitEnabled) "
-            + "delay=\(settings.verifyDelayMS)ms")
+        dbg("mode: v\(appVersion) modwait=\(settings.waitForModifierRelease) "
+            + "focusCommit=\(settings.focusCommitEnabled) delay=\(settings.verifyDelayMS)ms")
         registerAll()
         observeAppActivations()
         observeSourceChanges()
@@ -123,7 +124,8 @@ final class AppState: ObservableObject {
         guard let id = api.currentSourceID(), id != lastLoggedSourceID else { return }
         lastLoggedSourceID = id
         currentID = id
-        let tag = classifyChange(newID: id, lastTarget: lastSwitchTarget, lastSwitchAt: lastSwitchAt)
+        let tag = classifyChange(newID: id, lastTarget: lastSwitchTarget,
+                                 lastSwitchAt: lastSwitchAt, recovering: lastSwitchWasRepress)
         let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
         dbg("changed: \(id) [\(tag)] app=\(app)")
     }
@@ -149,17 +151,26 @@ final class AppState: ObservableObject {
             return
         }
         dbg("autoSwitch: \(bundleID) → \(rule.sourceID)")
-        performSwitch(to: rule.sourceID)
+        performSwitch(to: rule.sourceID, viaHotkey: false)
     }
 
-    private func performSwitch(to sourceID: String) {
+    private func performSwitch(to sourceID: String, viaHotkey: Bool) {
         // 모든 전환에 앱 이름을 남긴다 — 어느 앱에서 desync가 나는지 사후 분석용
         dbg("app=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")")
         suppressRulesUntil = Date().addingTimeInterval(1.0)
-        lastSwitchTarget = sourceID
-        lastSwitchAt = Date()
         switchTask?.cancel()
         switchTask = Task { @MainActor in
+            if viaHotkey, settings.waitForModifierRelease {
+                let held: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+                let r = await waitForModifierRelease(
+                    isDown: { !NSEvent.modifierFlags.intersection(held).isEmpty })
+                if Task.isCancelled { return }
+                dbg("modwait: \(r.waitedMS)ms\(r.timedOut ? " (timeout)" : "")")
+            }
+            lastSwitchTarget = sourceID
+            lastSwitchAt = Date()
+            lastSwitchWasRepress = (api.currentSourceID() == sourceID)
+            suppressRulesUntil = Date().addingTimeInterval(1.0)
             let ok = await switcher.switchTo(sourceID)
             if !Task.isCancelled {
                 lastSwitchFailed = !ok
@@ -179,7 +190,7 @@ final class AppState: ObservableObject {
             // 시스템에서 제거된 소스의 매핑은 무시 (스펙: 에러 처리)
             guard sources.contains(where: { $0.id == sourceID }) else { continue }
             let ok = hotkeys.register(combo) { [weak self] in
-                self?.performSwitch(to: sourceID)
+                self?.performSwitch(to: sourceID, viaHotkey: true)
             }
             if !ok { failedRegistrations.insert(sourceID) }
         }

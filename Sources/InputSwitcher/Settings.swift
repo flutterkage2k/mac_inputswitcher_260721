@@ -47,6 +47,12 @@ final class Settings {
         set { defaults.set(newValue, forKey: "lastNotifiedVersion") }
     }
 
+    /// 단축키 전환 시 보조키에서 손을 뗄 때까지 기다릴지 (실험 중, 기본 켜짐)
+    var waitForModifierRelease: Bool {
+        get { defaults.object(forKey: "waitForModifierRelease") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "waitForModifierRelease") }
+    }
+
     /// 포커스 커밋 사용 여부 (기본 꺼짐). 예전 방식 복원용.
     var focusCommitEnabled: Bool {
         get { defaults.object(forKey: "focusCommitEnabled") as? Bool ?? false }
