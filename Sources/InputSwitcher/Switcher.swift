@@ -3,7 +3,10 @@ import Foundation
 struct InputSource: Identifiable, Equatable {
     let id: String
     let name: String
+    /// 한/중/일/베트남어 — 조합·변환 과정이 있는 입력기. 경유지로 쓰면 안 된다.
     var isCJKV = false
+    /// 커밋 창은 한글에만 쓴다 (아래 needsCommit 주석 참고)
+    var isKorean = false
 }
 
 /// TIS API는 메인 스레드를 요구한다 — Tahoe에서 백그라운드 스레드 호출 시
@@ -86,9 +89,13 @@ final class Switcher {
             return true
         }
 
-        // 포커스 커밋은 기본으로 쓰지 않는다 — 그 창이 사용자가 친 글자를 가로채는 게
-        // 실측됐다 (dev4 1.8일간 11회).
-        let needsCommit = (focusCommitEnabled && isCJKV(id)) || pendingCommit
+        // 커밋 창은 한글에만 쓴다.
+        // 일본어에 쓰면 IME가 우리 창에 달라붙었다 떨어지면서 한자 변환 후보창이
+        // 주인 없이 화면에 남고 입력이 죽는다(카카오톡 검색창에서 재현).
+        // 이득도 없다 — 일본어 진입 실패율은 커밋 유무와 무관하게 14%로 같았다
+        // (커밋 O 12/83, 커밋 X 16/118). 한글은 23% vs 33%로 커밋 쪽이 낫다.
+        let isKorean = sources.first { $0.id == id }?.isKorean ?? false
+        let needsCommit = (focusCommitEnabled && isKorean) || pendingCommit
         if isCJKV(current) && !needsCommit {
             // CJKV 이탈 시 커밋은 카카오톡 회귀를 유발해 보류. 빈도만 계측.
             dbg("switchTo: CJKV 이탈, 커밋 없이 select만")

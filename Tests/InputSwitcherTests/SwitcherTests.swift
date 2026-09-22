@@ -10,7 +10,8 @@ final class MockAPI: InputSourceAPI {
     private(set) var selectedIDs: [String] = []
     var sources = [
         InputSource(id: "en", name: "ABC"),
-        InputSource(id: "ko", name: "한글", isCJKV: true),
+        InputSource(id: "ko", name: "한글", isCJKV: true, isKorean: true),
+        InputSource(id: "ja", name: "일본어", isCJKV: true),
     ]
     var cycleOrder = ["en", "ko"]
     private var cycleIndex = 0
@@ -117,8 +118,20 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.commitCalls, 0)
     }
 
-    /// 예전 커밋 방식 복원 모드 (기본 꺼짐)
-    func test_포커스_커밋_켜면_CJKV_진입에_커밋() async {
+    /// 일본어는 커밋 창을 쓰지 않는다. 커밋 창이 뜨면 일본어 IME가 우리 창에
+    /// 달라붙었다 떨어지면서 한자 변환 후보창이 주인 없이 화면에 남는다.
+    /// 실패율도 커밋 유무와 무관하게 14%로 같아 이득이 없다.
+    func test_일본어_진입은_커밋하지_않는다() async {
+        let api = MockAPI()
+        let switcher = makeSwitcher(api)
+        switcher.focusCommitEnabled = true
+        _ = await switcher.switchTo("ja")
+        XCTAssertEqual(api.commitCalls, 0)
+        XCTAssertEqual(api.selectedIDs, ["ja"])
+    }
+
+    /// 한글만 커밋 창을 쓴다 (실패율 23% vs 미사용 33%)
+    func test_포커스_커밋_켜면_한글_진입에_커밋() async {
         let api = MockAPI()
         let switcher = makeSwitcher(api)
         switcher.focusCommitEnabled = true

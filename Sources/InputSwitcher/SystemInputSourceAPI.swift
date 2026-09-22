@@ -21,7 +21,7 @@ final class SystemInputSourceAPI: InputSourceAPI {
                   let name = stringProp(src, kTISPropertyLocalizedName) else { return nil }
             let lang = languages(src).first ?? ""
             let isCJKV = lang == "ko" || lang == "ja" || lang == "vi" || lang.hasPrefix("zh")
-            return InputSource(id: id, name: name, isCJKV: isCJKV)
+            return InputSource(id: id, name: name, isCJKV: isCJKV, isKorean: lang == "ko")
         }
     }
 
