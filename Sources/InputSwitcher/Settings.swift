@@ -47,15 +47,19 @@ final class Settings {
         set { defaults.set(newValue, forKey: "lastNotifiedVersion") }
     }
 
-    /// 단축키 전환 시 보조키에서 손을 뗄 때까지 기다릴지 (실험 중, 기본 켜짐)
+    /// 단축키 전환 시 보조키에서 손을 뗄 때까지 기다릴지.
+    /// 실측 결과 대기가 200~340ms, 16번 중 3번은 1초 상한까지 가서 "눌러도 안 바뀐다"로
+    /// 체감됐다. 기본 꺼짐.
     var waitForModifierRelease: Bool {
-        get { defaults.object(forKey: "waitForModifierRelease") as? Bool ?? true }
+        get { defaults.object(forKey: "waitForModifierRelease") as? Bool ?? false }
         set { defaults.set(newValue, forKey: "waitForModifierRelease") }
     }
 
-    /// 포커스 커밋 사용 여부 (기본 꺼짐). 예전 방식 복원용.
+    /// 포커스 커밋(보이지 않는 창이 0.15초 key를 가져가는 방식) 사용 여부.
+    /// 진입 실패율이 이 방식일 때 20~23%로 가장 낮았다(왕복 방식은 28~46%).
+    /// 대가로 연속 전환 시 글자를 가끔 가로챈다(dev4 1.8일간 11회). 기본 켜짐.
     var focusCommitEnabled: Bool {
-        get { defaults.object(forKey: "focusCommitEnabled") as? Bool ?? false }
+        get { defaults.object(forKey: "focusCommitEnabled") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "focusCommitEnabled") }
     }
 
