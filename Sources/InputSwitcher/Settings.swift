@@ -71,8 +71,9 @@ final class Settings {
     var verifyDelayMS: UInt64 {
         get {
             let v = defaults.integer(forKey: delayKey)
-            // 기본 150ms: macOS 26 (Tahoe)에서 CJKV 포커스-커밋이 안정되는 최소값 (macism 동일)
-            return v > 0 ? UInt64(v) : 150
+            // 기본 80ms. 커밋 창이 key를 쥐고 있는 시간이므로 짧을수록 글자를 덜 먹는다.
+            // 150ms는 창을 매번 띄우던 시절의 값이고, 이제는 실패 시에만 띄운다.
+            return v > 0 ? UInt64(v) : 80
         }
         set { defaults.set(Int(newValue), forKey: delayKey) }
     }

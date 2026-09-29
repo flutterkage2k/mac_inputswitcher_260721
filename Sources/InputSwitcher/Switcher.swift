@@ -29,9 +29,6 @@ protocol InputSourceAPI {
 final class Switcher {
     private let api: InputSourceAPI
     var verifyDelayMS: UInt64
-    /// CJKV가 커밋 없이 선택된 상태(패널 열림 중 전환). 이 상태를 떠나는 전환은
-    /// 비CJKV 타깃이라도 커밋해야 실제 IME가 풀린다.
-    private var pendingCommit = false
     /// 포커스 커밋(보이지 않는 창이 키 입력을 받는 방식) 사용 여부.
     /// 사용자가 친 글자를 가로채는 게 실측돼 기본값은 꺼짐. 예전 방식 복원용.
     var focusCommitEnabled = false
@@ -62,9 +59,7 @@ final class Switcher {
     }
 
     private func commit() async {
-        let committed = await api.commitSelection(waitMS: verifyDelayMS)
-        pendingCommit = !committed
-        if !committed { dbg("switchTo: 커밋 생략됨 → pendingCommit") }
+        _ = await api.commitSelection(waitMS: verifyDelayMS)
     }
 
     init(api: InputSourceAPI, verifyDelayMS: UInt64 = 150) {
@@ -89,25 +84,31 @@ final class Switcher {
             return true
         }
 
-        // 커밋 창은 한글에만 쓴다.
-        // 일본어에 쓰면 IME가 우리 창에 달라붙었다 떨어지면서 한자 변환 후보창이
-        // 주인 없이 화면에 남고 입력이 죽는다(카카오톡 검색창에서 재현).
-        // 이득도 없다 — 일본어 진입 실패율은 커밋 유무와 무관하게 14%로 같았다
-        // (커밋 O 12/83, 커밋 X 16/118). 한글은 23% vs 33%로 커밋 쪽이 낫다.
-        let isKorean = sources.first { $0.id == id }?.isKorean ?? false
-        let needsCommit = (focusCommitEnabled && isKorean) || pendingCommit
-        if isCJKV(current) && !needsCommit {
-            // CJKV 이탈 시 커밋은 카카오톡 회귀를 유발해 보류. 빈도만 계측.
+        // 커밋 창은 한글에만, 그리고 select가 실패했을 때만 쓴다.
+        //
+        // 매번 띄우던 방식은 성공하는 전환(약 3분의 2)에까지 부작용을 지웠다 —
+        // 창이 0.15초 key를 가져가는 동안 사용자가 친 글자를 먹는다(dev12 25시간 7회).
+        // 먼저 select 해보고 읽어서 확인한 뒤, 안 됐을 때만 창을 띄우고 재시도한다.
+        // (nuridol/SwitchIM 방식)
+        //
+        // 일본어는 실패해도 쓰지 않는다. IME가 우리 창에 붙었다 떨어지며 한자 변환
+        // 후보창이 주인 없이 남는다. 이득도 없다 — 일본어 진입 실패율은 커밋 유무와
+        // 무관하게 14%로 같았다(커밋 O 12/83, X 16/118).
+        let canCommit = focusCommitEnabled
+            && (sources.first { $0.id == id }?.isKorean ?? false)
+        if isCJKV(current) && !canCommit {
             dbg("switchTo: CJKV 이탈, 커밋 없이 select만")
         }
         for attempt in 0..<2 {
             dbg("switchTo: attempt \(attempt) select")
             api.select(id)
-            if needsCommit {
-                await commit()
+            if api.currentSourceID() == id { return true }   // 한 번에 성공 = 창 불필요
+            if attempt == 0, canCommit {
+                await commit()                                // 실패했을 때만 창을 띄운다
+                api.select(id)
+                if api.currentSourceID() == id { return true }
             }
             if Task.isCancelled { return true }
-            if api.currentSourceID() == id { return true }
             try? await Task.sleep(nanoseconds: verifyDelayMS * 1_000_000)
             if Task.isCancelled { return true }
             if api.currentSourceID() == id { return true }
