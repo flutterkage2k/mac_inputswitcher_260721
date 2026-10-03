@@ -61,6 +61,29 @@ final class SystemInputSourceAPI: InputSourceAPI {
         return true
     }
 
+    /// 우리 앱을 잠깐 활성화했다가 원래 앱으로 돌려준다.
+    /// 커밋 창(key만 가져오기)과 달리 사용자 앱을 실제로 비활성화시킨다 — 돌아올 때
+    /// 입력 세션이 새로 만들어지는 것이 목적이다. 그만큼 파급이 크므로 사용자가
+    /// 같은 키를 다시 누른 경우(이미 전환이 안 먹고 있는 상태)에만 쓴다.
+    @discardableResult
+    func cycleAppFocus(waitMS: UInt64) async -> Bool {
+        // 포커스를 잃으면 닫히는 런처 패널이 떠 있으면 하지 않는다
+        guard !transientPanelIsOpen() else {
+            dbg("appCycle: skip (패널 열림)")
+            return false
+        }
+        guard let previous = NSWorkspace.shared.frontmostApplication,
+              previous.bundleIdentifier != Bundle.main.bundleIdentifier else {
+            dbg("appCycle: skip (앞 앱 없음 또는 우리 앱)")
+            return false
+        }
+        dbg("appCycle: \(previous.localizedName ?? "?") 떠났다 복귀 (\(waitMS)ms)")
+        NSApp.activate(ignoringOtherApps: true)
+        try? await Task.sleep(nanoseconds: waitMS * 1_000_000)
+        previous.activate()
+        return true
+    }
+
     func currentSourceID() -> String? {
         guard let src = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return nil }
         return stringProp(src, kTISPropertyInputSourceID)

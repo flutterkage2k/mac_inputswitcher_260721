@@ -21,6 +21,10 @@ protocol InputSourceAPI {
     /// 돌아오는 포커스 사이클로 커밋시킨다 (macism 방식).
     /// 반환: 실제로 커밋을 수행했으면 true, (패널 열림 등으로) 생략했으면 false.
     func commitSelection(waitMS: UInt64) async -> Bool
+    /// 우리 앱을 잠깐 활성화했다가 원래 앱으로 돌려준다 (사용자의 "다른 앱 갔다 오기").
+    /// 앱이 포커스를 되찾을 때 입력 세션이 새로 만들어지면서 현재 언어를 제대로 읽는다.
+    /// 반환: 실제로 수행했으면 true, (런처 패널이 떠 있어) 생략했으면 false.
+    func cycleAppFocus(waitMS: UInt64) async -> Bool
     func postSystemSwitchShortcut()
 }
 
@@ -42,7 +46,20 @@ final class Switcher {
     /// 겹쳐 한글 조합을 끊었고(자소 분리 70%), 그래서 제거했다. 다시 누르는 시점은
     /// 이미 타이핑이 영어로 나오는 상태라 끊길 한글 조합이 없다.
     /// 경유지는 조합이 없는 비CJKV만 쓴다. CJKV 경유는 그 사이 타이핑을 한자로 바꾼다.
+    /// 같은 소스 재입력 시 복구.
+    ///
+    /// 1순위는 앱 왕복이다. 사용자가 실제로 효과를 본 방법이 "다른 앱 갔다 오기"이고,
+    /// 앱별 자동 전환(앱이 막 활성화되는 순간)만 실패율 5%로 유독 낮았던 것도 같은
+    /// 이유로 보인다. 커밋 창은 키보드 포커스만 가져올 뿐 앱을 비활성화하지 않아
+    /// 이 효과가 없었다.
+    ///
+    /// 런처 패널이 떠 있어 앱 왕복을 못 하면 예전의 언어 왕복으로 대체한다.
     private func recover(to id: String, sources: [InputSource]) async {
+        if await api.cycleAppFocus(waitMS: recoveryDetourMS) {
+            dbg("switchTo: 같은 소스 재입력 → 앱 왕복")
+            return
+        }
+        dbg("switchTo: 앱 왕복 불가 → 언어 왕복으로 대체")
         guard let detour = sources.first(where: { !$0.isCJKV && $0.id != id }) else {
             dbg("switchTo: 같은 소스 재입력, 경유할 비CJKV 없음 → 무동작")
             return
