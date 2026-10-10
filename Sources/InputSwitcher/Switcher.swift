@@ -21,10 +21,6 @@ protocol InputSourceAPI {
     /// 돌아오는 포커스 사이클로 커밋시킨다 (macism 방식).
     /// 반환: 실제로 커밋을 수행했으면 true, (패널 열림 등으로) 생략했으면 false.
     func commitSelection(waitMS: UInt64) async -> Bool
-    /// 우리 앱을 잠깐 활성화했다가 원래 앱으로 돌려준다 (사용자의 "다른 앱 갔다 오기").
-    /// 앱이 포커스를 되찾을 때 입력 세션이 새로 만들어지면서 현재 언어를 제대로 읽는다.
-    /// 반환: 실제로 수행했으면 true, (런처 패널이 떠 있어) 생략했으면 false.
-    func cycleAppFocus(waitMS: UInt64) async -> Bool
     func postSystemSwitchShortcut()
 }
 
@@ -39,27 +35,22 @@ final class Switcher {
     /// 복구 왕복의 경유지 체류 시간
     var recoveryDetourMS: UInt64 = 60
 
-    /// 같은 소스 재입력 시 복구: 비CJKV 레이아웃을 잠깐 경유했다 목표로 돌아온다.
-    /// 사용자가 손으로 하던 "영어로 갔다가 다시 한글" 조작의 자동화.
-    ///
-    /// 진입 직후 자동으로 돌리는 왕복은 넣지 않는다 — 막 타이핑을 시작하는 순간과
-    /// 겹쳐 한글 조합을 끊었고(자소 분리 70%), 그래서 제거했다. 다시 누르는 시점은
-    /// 이미 타이핑이 영어로 나오는 상태라 끊길 한글 조합이 없다.
-    /// 경유지는 조합이 없는 비CJKV만 쓴다. CJKV 경유는 그 사이 타이핑을 한자로 바꾼다.
     /// 같은 소스 재입력 시 복구.
     ///
-    /// 1순위는 앱 왕복이다. 사용자가 실제로 효과를 본 방법이 "다른 앱 갔다 오기"이고,
-    /// 앱별 자동 전환(앱이 막 활성화되는 순간)만 실패율 5%로 유독 낮았던 것도 같은
-    /// 이유로 보인다. 커밋 창은 키보드 포커스만 가져올 뿐 앱을 비활성화하지 않아
-    /// 이 효과가 없었다.
+    /// 한글은 커밋 창(nonactivating)을 쓴다. 앱 왕복(우리 앱을 잠깐 활성화)은 복구율은
+    /// 가장 좋았지만(왕복 뒤 또 누름 0.14회 vs 언어 왕복 1.2~1.5회) 앱을 비활성화해
+    /// Finder 이름바꾸기를 끝내버렸다 (dev14 로그로 확인, v1.0.1에서 고쳤던 것과
+    /// 같은 버그). 커밋 창은 앱 활성 상태를 유지한다.
     ///
-    /// 런처 패널이 떠 있어 앱 왕복을 못 하면 예전의 언어 왕복으로 대체한다.
-    private func recover(to id: String, sources: [InputSource]) async {
-        if await api.cycleAppFocus(waitMS: recoveryDetourMS) {
-            dbg("switchTo: 같은 소스 재입력 → 앱 왕복")
+    /// 그 외(일본어 등)나 커밋이 생략되면(런처 패널 열림) 언어 왕복: 비CJKV 레이아웃을
+    /// 잠깐 경유했다 돌아온다. 경유지는 조합이 없는 비CJKV만 — CJKV 경유는 그 사이
+    /// 타이핑을 한자로 바꾼다. 진입 직후 자동 왕복은 한글 조합을 끊어(자소 분리 70%)
+    /// 넣지 않는다. 다시 누르는 시점은 이미 영어로 쳐지는 상태라 끊길 조합이 없다.
+    private func recover(to id: String, sources: [InputSource], canCommit: Bool) async {
+        if canCommit, await api.commitSelection(waitMS: verifyDelayMS) {
+            dbg("switchTo: 같은 소스 재입력 → 커밋 창")
             return
         }
-        dbg("switchTo: 앱 왕복 불가 → 언어 왕복으로 대체")
         guard let detour = sources.first(where: { !$0.isCJKV && $0.id != id }) else {
             dbg("switchTo: 같은 소스 재입력, 경유할 비CJKV 없음 → 무동작")
             return
@@ -94,25 +85,29 @@ final class Switcher {
             return sources.first { $0.id == sourceID }?.isCJKV ?? false
         }
 
+        // 커밋 창은 한글에만 쓴다 (일본어 이유는 아래)
+        let canCommit = focusCommitEnabled
+            && (sources.first { $0.id == id }?.isKorean ?? false)
+
         if current == id {
             // 사용자가 같은 소스를 다시 누름 = macOS는 이 소스라고 하는데(HUD도 그렇게
             // 뜸) 앱 안의 입력기는 이전 언어에 머문 상태. 로그 기준 한글 진입의 약 20%.
-            await recover(to: id, sources: sources)
+            await recover(to: id, sources: sources, canCommit: canCommit)
             return true
         }
 
-        // 커밋 창은 한글에만, 그리고 select가 실패했을 때만 쓴다.
+        // 진입 시 커밋 창은 select가 실패했을 때만 쓴다.
         //
         // 매번 띄우던 방식은 성공하는 전환(약 3분의 2)에까지 부작용을 지웠다 —
         // 창이 0.15초 key를 가져가는 동안 사용자가 친 글자를 먹는다(dev12 25시간 7회).
         // 먼저 select 해보고 읽어서 확인한 뒤, 안 됐을 때만 창을 띄우고 재시도한다.
         // (nuridol/SwitchIM 방식)
+        // 실측상 이 경로는 거의 안 탄다(dev13~14 9일간 0회). TIS는 실제 입력기가 안
+        // 바뀌어도 바뀌었다고 보고하기 때문이다. 실패는 사용자의 재입력으로만 드러난다.
         //
         // 일본어는 실패해도 쓰지 않는다. IME가 우리 창에 붙었다 떨어지며 한자 변환
         // 후보창이 주인 없이 남는다. 이득도 없다 — 일본어 진입 실패율은 커밋 유무와
         // 무관하게 14%로 같았다(커밋 O 12/83, X 16/118).
-        let canCommit = focusCommitEnabled
-            && (sources.first { $0.id == id }?.isKorean ?? false)
         if isCJKV(current) && !canCommit {
             dbg("switchTo: CJKV 이탈, 커밋 없이 select만")
         }

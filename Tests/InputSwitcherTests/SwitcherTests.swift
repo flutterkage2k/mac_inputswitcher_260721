@@ -33,15 +33,6 @@ final class MockAPI: InputSourceAPI {
         commitCalls += 1
         return commitRuns
     }
-    private(set) var appCycleCalls = 0
-    var appCycleRuns = true
-    func cycleAppFocus(waitMS: UInt64) async -> Bool {
-        appCycleCalls += 1
-        if appCycleRuns { current = pendingAfterCycle ?? current }
-        return appCycleRuns
-    }
-    /// 앱 왕복이 돌면 이 값으로 현재 소스가 바뀐 것으로 친다 (실제 IME가 따라오는 상황)
-    var pendingAfterCycle: String?
     func postSystemSwitchShortcut() {
         postShortcutCalls += 1
         cycleIndex = (cycleIndex + 1) % cycleOrder.count
@@ -72,38 +63,44 @@ final class SwitcherTests: XCTestCase {
     }
 
     /// 같은 소스 재입력 = "HUD는 한글인데 영어로 쳐진다"는 사용자 신호.
-    /// 사용자가 손으로 하던 복구는 '다른 앱 갔다 오기'다. 그걸 대신한다.
-    func test_같은_소스_재입력은_앱_왕복() async {
+    /// 한글은 커밋 창으로 복구한다. 앱을 비활성화하지 않아 Finder 이름바꾸기가 유지된다.
+    func test_한글_재입력은_커밋_창() async {
         let api = MockAPI()
         api.current = "ko"
-        let ok = await makeSwitcher(api).switchTo("ko")
+        let switcher = makeSwitcher(api)
+        switcher.focusCommitEnabled = true
+        let ok = await switcher.switchTo("ko")
         XCTAssertTrue(ok)
-        XCTAssertEqual(api.appCycleCalls, 1)
+        XCTAssertEqual(api.commitCalls, 1)
         XCTAssertTrue(api.selectedIDs.isEmpty)   // 입력소스는 건드리지 않는다
-        XCTAssertEqual(api.commitCalls, 0)
     }
 
-    /// 앱 왕복을 못 하면(런처 패널이 열려 있음) 예전처럼 언어 왕복으로 대체
-    func test_앱_왕복_불가하면_언어_왕복으로_대체() async {
+    /// 커밋이 생략되면(런처 패널 열림) 언어 왕복으로 대체
+    func test_커밋_생략되면_언어_왕복으로_대체() async {
         let api = MockAPI()
         api.current = "ko"
-        api.appCycleRuns = false
-        _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.appCycleCalls, 1)
+        api.commitRuns = false
+        let switcher = makeSwitcher(api)
+        switcher.focusCommitEnabled = true
+        _ = await switcher.switchTo("ko")
+        XCTAssertEqual(api.commitCalls, 1)
         XCTAssertEqual(api.selectedIDs, ["en", "ko"])
     }
 
-    /// 평소 전환(다른 언어로 가는 경우)에는 앱 왕복을 하지 않는다
-    func test_일반_전환은_앱_왕복_안함() async {
+    /// 일본어 재입력은 커밋 창 대신 언어 왕복 (커밋 창은 한자 후보창을 남긴다)
+    func test_일본어_재입력은_언어_왕복() async {
         let api = MockAPI()
-        _ = await makeSwitcher(api).switchTo("ko")
-        XCTAssertEqual(api.appCycleCalls, 0)
+        api.current = "ja"
+        let switcher = makeSwitcher(api)
+        switcher.focusCommitEnabled = true
+        _ = await switcher.switchTo("ja")
+        XCTAssertEqual(api.commitCalls, 0)
+        XCTAssertEqual(api.selectedIDs, ["en", "ja"])
     }
 
     /// 경유지는 조합이 없는 비CJKV 레이아웃만. CJKV 경유는 그 사이 타이핑을 한자로 바꾼다.
     func test_복구_경유지는_비CJKV만() async {
         let api = MockAPI()
-        api.appCycleRuns = false
         api.sources = [
             InputSource(id: "ko", name: "한글", isCJKV: true),
             InputSource(id: "ja", name: "일본어", isCJKV: true),
@@ -116,7 +113,6 @@ final class SwitcherTests: XCTestCase {
 
     func test_비CJKV_경유지_없으면_재입력은_무동작() async {
         let api = MockAPI()
-        api.appCycleRuns = false
         api.sources = [
             InputSource(id: "ko", name: "한글", isCJKV: true),
             InputSource(id: "ja", name: "일본어", isCJKV: true),
@@ -132,7 +128,6 @@ final class SwitcherTests: XCTestCase {
         let api = MockAPI()
         api.current = "ko"
         let switcher = makeSwitcher(api)
-        api.appCycleRuns = false
         switcher.recoveryDetourMS = 50
         let task = Task { await switcher.switchTo("ko") }
         try? await Task.sleep(nanoseconds: 10_000_000)
