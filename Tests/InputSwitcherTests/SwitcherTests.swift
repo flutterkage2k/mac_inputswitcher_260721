@@ -72,7 +72,7 @@ final class SwitcherTests: XCTestCase {
         let ok = await switcher.switchTo("ko")
         XCTAssertTrue(ok)
         XCTAssertEqual(api.commitCalls, 1)
-        XCTAssertTrue(api.selectedIDs.isEmpty)   // 입력소스는 건드리지 않는다
+        XCTAssertEqual(api.selectedIDs, ["ko"])   // dev16: 커밋 창 전에 재선택
     }
 
     /// 커밋이 생략되면(런처 패널 열림) 언어 왕복으로 대체
@@ -84,7 +84,7 @@ final class SwitcherTests: XCTestCase {
         switcher.focusCommitEnabled = true
         _ = await switcher.switchTo("ko")
         XCTAssertEqual(api.commitCalls, 1)
-        XCTAssertEqual(api.selectedIDs, ["en", "ko"])
+        XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])   // 재선택 → 커밋 생략 → 왕복
     }
 
     /// 일본어 재입력은 커밋 창 대신 언어 왕복 (커밋 창은 한자 후보창을 남긴다)

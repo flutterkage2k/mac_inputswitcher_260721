@@ -47,9 +47,15 @@ final class Switcher {
     /// 타이핑을 한자로 바꾼다. 진입 직후 자동 왕복은 한글 조합을 끊어(자소 분리 70%)
     /// 넣지 않는다. 다시 누르는 시점은 이미 영어로 쳐지는 상태라 끊길 조합이 없다.
     private func recover(to id: String, sources: [InputSource], canCommit: Bool) async {
-        if canCommit, await api.commitSelection(waitMS: verifyDelayMS) {
-            dbg("switchTo: 같은 소스 재입력 → 커밋 창")
-            return
+        if canCommit {
+            // dev16: 커밋 창 전에 select를 한 번 더 한다. Keyboard Maestro의 Set Keyboard
+            // Layout(같은 소스 재선택)을 앱과 같은 키에 병행했을 때 체감이 나았다는 보고 —
+            // dev15(커밋 창만, 37%/105회)와의 유일한 차이가 이 재선택이다.
+            api.select(id)
+            if await api.commitSelection(waitMS: verifyDelayMS) {
+                dbg("switchTo: 같은 소스 재입력 → 재선택 + 커밋 창")
+                return
+            }
         }
         guard let detour = sources.first(where: { !$0.isCJKV && $0.id != id }) else {
             dbg("switchTo: 같은 소스 재입력, 경유할 비CJKV 없음 → 무동작")
