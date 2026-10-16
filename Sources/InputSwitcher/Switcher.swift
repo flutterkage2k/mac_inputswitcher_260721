@@ -5,7 +5,7 @@ struct InputSource: Identifiable, Equatable {
     let name: String
     /// 한/중/일/베트남어 — 조합·변환 과정이 있는 입력기. 경유지로 쓰면 안 된다.
     var isCJKV = false
-    /// 커밋 창은 한글에만 쓴다 (아래 needsCommit 주석 참고)
+    /// dev17부터 커밋 대상 판정에 쓰지 않는다(CJKV 전부 커밋). 설정 호환용으로 유지.
     var isKorean = false
 }
 
@@ -53,7 +53,7 @@ final class Switcher {
             // dev15(커밋 창만, 37%/105회)와의 유일한 차이가 이 재선택이다.
             api.select(id)
             if await api.commitSelection(waitMS: verifyDelayMS) {
-                dbg("switchTo: 같은 소스 재입력 → 재선택 + 커밋 창")
+                dbg("switchTo: 같은 소스 재입력 → 재선택 + activate 커밋")
                 return
             }
         }
@@ -91,9 +91,11 @@ final class Switcher {
             return sources.first { $0.id == sourceID }?.isCJKV ?? false
         }
 
-        // 커밋 창은 한글에만 쓴다 (일본어 이유는 아래)
-        let canCommit = focusCommitEnabled
-            && (sources.first { $0.id == id }?.isKorean ?? false)
+        // dev17: v1.0.0/macism 방식으로 복귀. CJKV 진입은 매번 select + activate 커밋.
+        // "실패했을 때만 커밋"(dev13~16)은 TIS가 실패를 보고하지 않아 사실상 커밋이
+        // 안 돌았다. 한글만 커밋하던 제한(일본어 후보창 고아화)은 nonactivating 패널
+        // 시절 관찰이라 activate 방식에서 다시 본다. Finder 예외는 API 쪽에서 처리.
+        let canCommit = focusCommitEnabled && isCJKV(id)
 
         if current == id {
             // 사용자가 같은 소스를 다시 누름 = macOS는 이 소스라고 하는데(HUD도 그렇게
@@ -102,31 +104,12 @@ final class Switcher {
             return true
         }
 
-        // 진입 시 커밋 창은 select가 실패했을 때만 쓴다.
-        //
-        // 매번 띄우던 방식은 성공하는 전환(약 3분의 2)에까지 부작용을 지웠다 —
-        // 창이 0.15초 key를 가져가는 동안 사용자가 친 글자를 먹는다(dev12 25시간 7회).
-        // 먼저 select 해보고 읽어서 확인한 뒤, 안 됐을 때만 창을 띄우고 재시도한다.
-        // (nuridol/SwitchIM 방식)
-        // 실측상 이 경로는 거의 안 탄다(dev13~14 9일간 0회). TIS는 실제 입력기가 안
-        // 바뀌어도 바뀌었다고 보고하기 때문이다. 실패는 사용자의 재입력으로만 드러난다.
-        //
-        // 일본어는 실패해도 쓰지 않는다. IME가 우리 창에 붙었다 떨어지며 한자 변환
-        // 후보창이 주인 없이 남는다. 이득도 없다 — 일본어 진입 실패율은 커밋 유무와
-        // 무관하게 14%로 같았다(커밋 O 12/83, X 16/118).
-        if isCJKV(current) && !canCommit {
-            dbg("switchTo: CJKV 이탈, 커밋 없이 select만")
-        }
         for attempt in 0..<2 {
             dbg("switchTo: attempt \(attempt) select")
             api.select(id)
-            if api.currentSourceID() == id { return true }   // 한 번에 성공 = 창 불필요
-            if attempt == 0, canCommit {
-                await commit()                                // 실패했을 때만 창을 띄운다
-                api.select(id)
-                if api.currentSourceID() == id { return true }
-            }
+            if canCommit { await commit() }
             if Task.isCancelled { return true }
+            if api.currentSourceID() == id { return true }
             try? await Task.sleep(nanoseconds: verifyDelayMS * 1_000_000)
             if Task.isCancelled { return true }
             if api.currentSourceID() == id { return true }

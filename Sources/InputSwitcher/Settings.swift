@@ -71,9 +71,9 @@ final class Settings {
     var verifyDelayMS: UInt64 {
         get {
             let v = defaults.integer(forKey: delayKey)
-            // 기본 80ms. 커밋 창이 key를 쥐고 있는 시간이므로 짧을수록 글자를 덜 먹는다.
-            // 150ms는 창을 매번 띄우던 시절의 값이고, 이제는 실패 시에만 띄운다.
-            return v > 0 ? UInt64(v) : 80
+            // 기본 150ms. macism 작성자 실측으로 macOS 26(Tahoe)에서 안정적인 최솟값.
+            // dev15~16의 80ms는 이 아래였다.
+            return v > 0 ? UInt64(v) : 150
         }
         set { defaults.set(Int(newValue), forKey: delayKey) }
     }

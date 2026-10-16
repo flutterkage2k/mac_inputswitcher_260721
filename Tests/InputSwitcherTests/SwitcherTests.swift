@@ -87,15 +87,15 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.selectedIDs, ["ko", "en", "ko"])   // 재선택 → 커밋 생략 → 왕복
     }
 
-    /// 일본어 재입력은 커밋 창 대신 언어 왕복 (커밋 창은 한자 후보창을 남긴다)
-    func test_일본어_재입력은_언어_왕복() async {
+    /// dev17: 일본어 재입력도 한글과 같이 재선택 + activate 커밋 (macism은 CJKV 전부 동일 취급)
+    func test_일본어_재입력도_재선택_커밋() async {
         let api = MockAPI()
         api.current = "ja"
         let switcher = makeSwitcher(api)
         switcher.focusCommitEnabled = true
         _ = await switcher.switchTo("ja")
-        XCTAssertEqual(api.commitCalls, 0)
-        XCTAssertEqual(api.selectedIDs, ["en", "ja"])
+        XCTAssertEqual(api.commitCalls, 1)
+        XCTAssertEqual(api.selectedIDs, ["ja"])
     }
 
     /// 경유지는 조합이 없는 비CJKV 레이아웃만. CJKV 경유는 그 사이 타이핑을 한자로 바꾼다.
@@ -142,15 +142,14 @@ final class SwitcherTests: XCTestCase {
         XCTAssertEqual(api.commitCalls, 0)
     }
 
-    /// 일본어는 커밋 창을 쓰지 않는다. 커밋 창이 뜨면 일본어 IME가 우리 창에
-    /// 달라붙었다 떨어지면서 한자 변환 후보창이 주인 없이 화면에 남는다.
-    /// 실패율도 커밋 유무와 무관하게 14%로 같아 이득이 없다.
-    func test_일본어_진입은_커밋하지_않는다() async {
+    /// dev17: 일본어 진입도 커밋한다. 후보창 고아화는 nonactivating 패널 시절 관찰이라
+    /// activate 방식에서 다시 본다.
+    func test_일본어_진입도_커밋() async {
         let api = MockAPI()
         let switcher = makeSwitcher(api)
         switcher.focusCommitEnabled = true
         _ = await switcher.switchTo("ja")
-        XCTAssertEqual(api.commitCalls, 0)
+        XCTAssertEqual(api.commitCalls, 1)
         XCTAssertEqual(api.selectedIDs, ["ja"])
     }
 
@@ -164,38 +163,28 @@ final class SwitcherTests: XCTestCase {
         XCTAssertTrue(ok)
     }
 
-    /// 한 번에 성공하면 커밋 창을 띄우지 않는다. 매번 띄우면 성공하는 전환에까지
-    /// 글자 가로챔 위험을 지운다 (dev12 25시간 동안 7회 기록).
-    func test_한글_전환이_바로_되면_커밋_창_없음() async {
+    /// dev17 = v1.0.0/macism: CJKV 진입은 TIS가 성공이라 해도 매번 커밋한다.
+    /// TIS는 실제 입력기가 안 바뀌어도 바뀌었다고 보고하므로 "실패 시에만"은 안 돈다.
+    func test_한글_진입은_매번_커밋() async {
         let api = MockAPI()
         let switcher = makeSwitcher(api)
         switcher.focusCommitEnabled = true
         let ok = await switcher.switchTo("ko")
         XCTAssertTrue(ok)
-        XCTAssertEqual(api.commitCalls, 0)
+        XCTAssertEqual(api.commitCalls, 1)
         XCTAssertEqual(api.selectedIDs, ["ko"])
     }
 
-    /// select가 안 먹었을 때만 커밋 창을 띄우고 다시 시도한다 (SwitchIM 방식)
-    func test_한글_전환이_실패하면_커밋_창_후_재시도() async {
+    /// 첫 select가 반영 안 되면 재시도마다 select + 커밋
+    func test_한글_전환이_실패하면_재시도도_커밋() async {
         let api = MockAPI()
         api.selectSucceedsAfter = 1        // 첫 select는 반영 안 됨
         let switcher = makeSwitcher(api)
         switcher.focusCommitEnabled = true
         let ok = await switcher.switchTo("ko")
         XCTAssertTrue(ok)
-        XCTAssertEqual(api.commitCalls, 1)
+        XCTAssertEqual(api.commitCalls, 2)
         XCTAssertEqual(api.selectedIDs, ["ko", "ko"])
-    }
-
-    /// 일본어는 실패해도 커밋 창을 쓰지 않는다 (한자 후보창이 주인 없이 남음)
-    func test_일본어는_실패해도_커밋_창_없음() async {
-        let api = MockAPI()
-        api.selectSucceedsAfter = 1
-        let switcher = makeSwitcher(api)
-        switcher.focusCommitEnabled = true
-        _ = await switcher.switchTo("ja")
-        XCTAssertEqual(api.commitCalls, 0)
     }
 
     func test_포커스_커밋_켜도_비CJKV는_커밋_안함() async {
