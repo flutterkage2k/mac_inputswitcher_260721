@@ -4,7 +4,14 @@ import AppKit
 /// 커밋용 임시 패널. 커밋 중 들어온 키 입력을 감지해 알린다.
 private final class CommitPanel: NSPanel {
     var onKeyDown: (() -> Void)?
-    override func keyDown(with event: NSEvent) { onKeyDown?() }
+    override func keyDown(with event: NSEvent) {
+        // 단축키(⌃⌥⇧⌘+키)를 아직 누르고 있으면 키 반복이 여기로 들어온다. 글자가 아니므로
+        // 조기 종료 사유가 아니다 — dev17 로그에서 '키 입력 감지' 18회 중 전부가 커밋과 같은 초.
+        if event.isARepeat || event.modifierFlags.contains(.command) || event.modifierFlags.contains(.control) {
+            return
+        }
+        onKeyDown?()
+    }
     override func insertText(_ insertString: Any) { onKeyDown?() }
 }
 

@@ -13,6 +13,13 @@ final class AppState: ObservableObject {
     @Published var showHUD: Bool {
         didSet { settings.showHUD = showHUD }
     }
+    /// 커밋 창이 떠 있는 시간(ms). 설정 화면 슬라이더로 조정, 범위는 Settings.delayRange.
+    @Published var commitDelayMS: Double {
+        didSet {
+            settings.verifyDelayMS = UInt64(commitDelayMS)
+            switcher.verifyDelayMS = settings.verifyDelayMS
+        }
+    }
 
     /// 매핑은 있는데 시스템에서 제거된 소스 ID들 (설정 화면에 "소스 없음"으로 표시)
     var orphanedMappings: [String] {
@@ -45,6 +52,7 @@ final class AppState: ObservableObject {
 
     init() {
         showHUD = Settings().showHUD
+        commitDelayMS = Double(Settings().verifyDelayMS)
         sources = api.selectableSources()
         mappings = settings.mappings
         appRules = settings.appRules

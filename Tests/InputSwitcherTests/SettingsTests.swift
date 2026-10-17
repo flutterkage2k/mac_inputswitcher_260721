@@ -46,6 +46,16 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(Settings(defaults: defaults).showHUD)
     }
 
+    func test_verifyDelay_범위_밖은_범위로_당긴다() {
+        let s = Settings(defaults: defaults)
+        s.verifyDelayMS = 5
+        XCTAssertEqual(Settings(defaults: defaults).verifyDelayMS, 50)
+        s.verifyDelayMS = 9999
+        XCTAssertEqual(Settings(defaults: defaults).verifyDelayMS, 400)
+        defaults.set(80, forKey: "verifyDelayMS")          // 예전 dev 빌드가 남긴 값
+        XCTAssertEqual(Settings(defaults: defaults).verifyDelayMS, 80)
+    }
+
     func test_verifyDelay_기본값_150() {
         XCTAssertEqual(Settings(defaults: defaults).verifyDelayMS, 150)
     }

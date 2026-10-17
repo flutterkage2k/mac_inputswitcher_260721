@@ -70,6 +70,18 @@ struct SettingsView: View {
             .toggleStyle(.checkbox)
             Toggle("전환 시 화면에 표시 (HUD)", isOn: $state.showHUD)
                 .toggleStyle(.checkbox)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("전환 대기 시간")
+                    Spacer()
+                    Text("\(Int(state.commitDelayMS))ms").monospaced()
+                }
+                Slider(value: $state.commitDelayMS,
+                       in: Double(Settings.delayRange.lowerBound)...Double(Settings.delayRange.upperBound),
+                       step: 10)
+                Text("한/일 전환 시 앱이 잠깐 멈추는 시간. 짧으면 전환이 덜 먹고, 길면 그만큼 느껴집니다. 기본 \(Settings.defaultDelayMS)ms.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
             HStack {
                 Button("종료") { NSApp.terminate(nil) }
                 Button(updateStatus == .checking ? "확인 중..." : "업데이트 확인") {

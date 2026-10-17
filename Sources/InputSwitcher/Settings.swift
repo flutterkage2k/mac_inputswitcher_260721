@@ -68,13 +68,22 @@ final class Settings {
         set { defaults.set(newValue, forKey: "showHUD") }
     }
 
+    /// 커밋 시간 허용 범위. 50 아래는 Tahoe에서 전환이 안 먹고(macism 실측 150이 안정 최솟값),
+    /// 400 위는 사용자 앱이 비활성화된 채 체감될 만큼 길다.
+    static let delayRange: ClosedRange<UInt64> = 50...400
+    static let defaultDelayMS: UInt64 = 150
+
     var verifyDelayMS: UInt64 {
         get {
             let v = defaults.integer(forKey: delayKey)
             // 기본 150ms. macism 작성자 실측으로 macOS 26(Tahoe)에서 안정적인 최솟값.
-            // dev15~16의 80ms는 이 아래였다.
-            return v > 0 ? UInt64(v) : 150
+            // dev15~16의 80ms는 이 아래였다. 저장값이 범위 밖이면 범위로 당긴다.
+            guard v > 0 else { return Self.defaultDelayMS }
+            return min(max(UInt64(v), Self.delayRange.lowerBound), Self.delayRange.upperBound)
         }
-        set { defaults.set(Int(newValue), forKey: delayKey) }
+        set {
+            let clamped = min(max(newValue, Self.delayRange.lowerBound), Self.delayRange.upperBound)
+            defaults.set(Int(clamped), forKey: delayKey)
+        }
     }
 }
