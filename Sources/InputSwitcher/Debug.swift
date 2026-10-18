@@ -1,8 +1,17 @@
 import Foundation
+import os
 
-/// 경량 진단 로그: ~/Library/Logs/InputSwitcher.log
+/// 통합 로그 미러. 파일 로그는 정리 도구(Memory Cleaner 등)가 ~/Library/Logs를 비우면
+/// 통째로 사라진다(2026-10-18 실제 발생). 통합 로그에 같이 남기면 시스템 로그와 같은
+/// 시각축에서 대조할 수 있다:
+///   log show --last 1d --predicate 'subsystem == "dev.heesung.InputSwitcher"'
+private let osLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "dev.heesung.InputSwitcher",
+                              category: "switch")
+
+/// 경량 진단 로그: ~/Library/Logs/InputSwitcher.log + 통합 로그
 /// 전환이 왜 실패/오작동하는지 사용자 머신에서 추적하기 위한 것.
 func dbg(_ msg: String) {
+    osLogger.log("\(msg, privacy: .public)")
     let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/InputSwitcher.log")
     // 무한 증식 방지: 1MB 넘으면 직전 파일을 .1로 남기고 새로 시작.

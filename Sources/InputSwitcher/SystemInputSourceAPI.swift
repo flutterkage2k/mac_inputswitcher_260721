@@ -70,12 +70,16 @@ final class SystemInputSourceAPI: InputSourceAPI {
             dbg("commit: skip (panel open)")
             return false
         }
+        // 소요 시간 계측: 창 띄우기부터 복귀까지가 waitMS를 크게 넘기면 WindowServer나
+        // CursorUIViewService 같은 시스템 쪽이 막혀 있다는 신호다 (2026-10-18 멈춤 조사).
+        let started = ContinuousClock.now
         if frontmostIsFinder() {
             dbg("commit: Finder → key-only 커밋 (\(waitMS)ms)")
             let panel = makeCommitPanel(nonactivating: true)
             panel.makeKeyAndOrderFront(nil)
             try? await Task.sleep(nanoseconds: waitMS * 1_000_000)
             panel.orderOut(nil) // key는 이전 key window로 자동 복귀
+            dbg("commit: 완료 \(elapsedMS(since: started))ms (목표 \(waitMS)ms)")
             return true
         }
         let previous = NSWorkspace.shared.frontmostApplication
@@ -83,13 +87,20 @@ final class SystemInputSourceAPI: InputSourceAPI {
         let panel = makeCommitPanel(nonactivating: false)
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        let activated = elapsedMS(since: started)
         try? await Task.sleep(nanoseconds: waitMS * 1_000_000)
         panel.orderOut(nil)
         // macism은 프로세스 종료로 복귀시킨다. 우리는 상주하므로 명시적으로 돌려준다(dev14 방식).
         if let previous, previous.bundleIdentifier != Bundle.main.bundleIdentifier {
             previous.activate()
         }
+        dbg("commit: 완료 \(elapsedMS(since: started))ms (activate \(activated)ms, 목표 \(waitMS)ms)")
         return true
+    }
+
+    private func elapsedMS(since start: ContinuousClock.Instant) -> Int64 {
+        let d = ContinuousClock.now - start
+        return d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000
     }
 
     func currentSourceID() -> String? {
