@@ -10,7 +10,8 @@ cd "$(dirname "$0")/.."
 IDENTITY="Developer ID Application: heesung jin (6NQV4LAHSK)"
 PROFILE="inputswitcher"
 REPO="flutterkage2k/mac_inputswitcher_260721"
-VERSION=$(sed -n 's/.*CFBundleShortVersionString.*<string>\(.*\)<\/string>.*/\1/p' scripts/bundle.sh)
+VERSION=$(sed -n 's/^VERSION="\${VERSION:-\(.*\)}"$/\1/p' scripts/bundle.sh)
+[ -n "$VERSION" ] || { echo "오류: scripts/bundle.sh에서 버전을 읽지 못했습니다."; exit 1; }
 
 # 버전 올리는 것을 잊고 재릴리스하는 실수 방지
 if gh release view "v$VERSION" --repo "$REPO" >/dev/null 2>&1; then
