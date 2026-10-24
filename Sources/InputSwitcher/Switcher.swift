@@ -3,7 +3,10 @@ import Foundation
 struct InputSource: Identifiable, Equatable {
     let id: String
     let name: String
+    /// 한/중/일/베트남어 — 조합·변환 과정이 있는 입력기. 경유지로 쓰면 안 된다.
     var isCJKV = false
+    /// dev17부터 커밋 대상 판정에 쓰지 않는다(CJKV 전부 커밋). 설정 호환용으로 유지.
+    var isKorean = false
 }
 
 /// TIS API는 메인 스레드를 요구한다 — Tahoe에서 백그라운드 스레드 호출 시
@@ -21,14 +24,57 @@ protocol InputSourceAPI {
     func postSystemSwitchShortcut()
 }
 
-/// CJK 버그 우회의 핵심: select → (CJKV면 포커스 커밋) → 검증 → 재시도 → 시스템 단축키 폴백.
+/// 전환 흐름: select → 검증 → 재시도 → 시스템 단축키 폴백.
 @MainActor
 final class Switcher {
     private let api: InputSourceAPI
     var verifyDelayMS: UInt64
-    /// CJKV가 커밋 없이 선택된 상태(패널 열림 중 전환). 이 상태를 떠나는 전환은
-    /// 비CJKV 타깃이라도 커밋해야 실제 IME가 풀린다.
-    private var pendingCommit = false
+    /// 포커스 커밋(보이지 않는 창이 키 입력을 받는 방식) 사용 여부.
+    /// 사용자가 친 글자를 가로채는 게 실측돼 기본값은 꺼짐. 예전 방식 복원용.
+    var focusCommitEnabled = false
+    /// 복구 왕복의 경유지 체류 시간
+    var recoveryDetourMS: UInt64 = 60
+
+    /// 같은 소스 재입력 시 복구.
+    ///
+    /// 한글은 커밋 창(nonactivating)을 쓴다. 앱 왕복(우리 앱을 잠깐 활성화)은 복구율은
+    /// 가장 좋았지만(왕복 뒤 또 누름 0.14회 vs 언어 왕복 1.2~1.5회) 앱을 비활성화해
+    /// Finder 이름바꾸기를 끝내버렸다 (dev14 로그로 확인, v1.0.1에서 고쳤던 것과
+    /// 같은 버그). 커밋 창은 앱 활성 상태를 유지한다.
+    ///
+    /// 그 외(일본어 등)나 커밋이 생략되면(런처 패널 열림) 언어 왕복: 비CJKV 레이아웃을
+    /// 잠깐 경유했다 돌아온다. 경유지는 조합이 없는 비CJKV만 — CJKV 경유는 그 사이
+    /// 타이핑을 한자로 바꾼다. 진입 직후 자동 왕복은 한글 조합을 끊어(자소 분리 70%)
+    /// 넣지 않는다. 다시 누르는 시점은 이미 영어로 쳐지는 상태라 끊길 조합이 없다.
+    private func recover(to id: String, sources: [InputSource], canCommit: Bool) async {
+        if canCommit {
+            // dev16: 커밋 창 전에 select를 한 번 더 한다. Keyboard Maestro의 Set Keyboard
+            // Layout(같은 소스 재선택)을 앱과 같은 키에 병행했을 때 체감이 나았다는 보고 —
+            // dev15(커밋 창만, 37%/105회)와의 유일한 차이가 이 재선택이다.
+            api.select(id)
+            if await api.commitSelection(waitMS: verifyDelayMS) {
+                dbg("switchTo: 같은 소스 재입력 → 재선택 + activate 커밋")
+                return
+            }
+        }
+        guard let detour = sources.first(where: { !$0.isCJKV && $0.id != id }) else {
+            dbg("switchTo: 같은 소스 재입력, 경유할 비CJKV 없음 → 무동작")
+            return
+        }
+        dbg("switchTo: 같은 소스 재입력 → 복구 왕복 (\(detour.id) 경유)")
+        api.select(detour.id)
+        try? await Task.sleep(nanoseconds: recoveryDetourMS * 1_000_000)
+        // 다음 전환이 끼어들어 취소됐으면 복귀하지 않는다 (뒤늦은 복귀가 새 전환과 엉킴)
+        guard !Task.isCancelled else {
+            dbg("switchTo: 복구 왕복 취소됨, 복귀 생략")
+            return
+        }
+        api.select(id)
+    }
+
+    private func commit() async {
+        _ = await api.commitSelection(waitMS: verifyDelayMS)
+    }
 
     init(api: InputSourceAPI, verifyDelayMS: UInt64 = 150) {
         self.api = api
@@ -36,20 +82,32 @@ final class Switcher {
     }
 
     func switchTo(_ id: String) async -> Bool {
-        dbg("switchTo(\(id)) — current=\(api.currentSourceID() ?? "?")")
-        if api.currentSourceID() == id {
-            dbg("switchTo: 이미 현재 소스, no-op")
+        let sources = api.selectableSources()
+        let current = api.currentSourceID()
+        dbg("switchTo(\(id)) — current=\(current ?? "?")")
+
+        func isCJKV(_ sourceID: String?) -> Bool {
+            guard let sourceID else { return false }
+            return sources.first { $0.id == sourceID }?.isCJKV ?? false
+        }
+
+        // dev17: v1.0.0/macism 방식으로 복귀. CJKV 진입은 매번 select + activate 커밋.
+        // "실패했을 때만 커밋"(dev13~16)은 TIS가 실패를 보고하지 않아 사실상 커밋이
+        // 안 돌았다. 한글만 커밋하던 제한(일본어 후보창 고아화)은 nonactivating 패널
+        // 시절 관찰이라 activate 방식에서 다시 본다. Finder 예외는 API 쪽에서 처리.
+        let canCommit = focusCommitEnabled && isCJKV(id)
+
+        if current == id {
+            // 사용자가 같은 소스를 다시 누름 = macOS는 이 소스라고 하는데(HUD도 그렇게
+            // 뜸) 앱 안의 입력기는 이전 언어에 머문 상태. 로그 기준 한글 진입의 약 20%.
+            await recover(to: id, sources: sources, canCommit: canCommit)
             return true
         }
-        let isCJKV = api.selectableSources().first { $0.id == id }?.isCJKV ?? false
+
         for attempt in 0..<2 {
             dbg("switchTo: attempt \(attempt) select")
             api.select(id)
-            if isCJKV || pendingCommit {
-                let committed = await api.commitSelection(waitMS: verifyDelayMS)
-                pendingCommit = !committed
-                if !committed { dbg("switchTo: 커밋 생략됨 → pendingCommit") }
-            }
+            if canCommit { await commit() }
             if Task.isCancelled { return true }
             if api.currentSourceID() == id { return true }
             try? await Task.sleep(nanoseconds: verifyDelayMS * 1_000_000)

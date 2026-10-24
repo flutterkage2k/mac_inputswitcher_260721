@@ -24,7 +24,11 @@ struct SettingsView: View {
         }
     }
 
-    var body: some View {
+    private enum Tab: String, CaseIterable { case basic = "기본", options = "옵션" }
+    @State private var tab: Tab = .basic
+
+    /// 첫 화면: 단축키만. 나머지는 옵션 탭 (한 화면에 다 담으면 설명이 잘린다)
+    private var basicTab: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(state.sources) { source in
                 HStack {
@@ -58,7 +62,11 @@ struct SettingsView: View {
                         .accessibilityLabel("단축키 삭제")
                 }
             }
-            Divider()
+        }
+    }
+
+    private var optionsTab: some View {
+        VStack(alignment: .leading, spacing: 8) {
             AppRulesSection(state: state)
             Divider()
             Toggle("로그인 시 시작", isOn: Binding(
@@ -70,6 +78,36 @@ struct SettingsView: View {
             .toggleStyle(.checkbox)
             Toggle("전환 시 화면에 표시 (HUD)", isOn: $state.showHUD)
                 .toggleStyle(.checkbox)
+            Divider()
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("전환 대기 시간")
+                    Spacer()
+                    Text("\(Int(state.commitDelayMS))ms").monospaced()
+                }
+                Slider(value: $state.commitDelayMS,
+                       in: Double(Settings.delayRange.lowerBound)...Double(Settings.delayRange.upperBound),
+                       step: 10)
+                Text("한/일로 바꿀 때 입력기를 확실히 적용하려고 앱을 잠깐 멈추는 시간입니다.\n짧으면 전환이 가끔 안 먹고, 길면 멈춤이 느껴집니다. 기본 \(Settings.defaultDelayMS)ms.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("", selection: $tab) {
+                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            switch tab {
+            case .basic: basicTab
+            case .options: optionsTab
+            }
+            Divider()
             HStack {
                 Button("종료") { NSApp.terminate(nil) }
                 Button(updateStatus == .checking ? "확인 중..." : "업데이트 확인") {

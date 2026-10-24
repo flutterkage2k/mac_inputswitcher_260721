@@ -1,6 +1,20 @@
 import Carbon
 import AppKit
 
+/// 커밋용 임시 패널. 커밋 중 들어온 키 입력을 감지해 알린다.
+private final class CommitPanel: NSPanel {
+    var onKeyDown: (() -> Void)?
+    override func keyDown(with event: NSEvent) {
+        // 단축키(⌃⌥⇧⌘+키)를 아직 누르고 있으면 키 반복이 여기로 들어온다. 글자가 아니므로
+        // 조기 종료 사유가 아니다 — dev17 로그에서 '키 입력 감지' 18회 중 전부가 커밋과 같은 초.
+        if event.isARepeat || event.modifierFlags.contains(.command) || event.modifierFlags.contains(.control) {
+            return
+        }
+        onKeyDown?()
+    }
+    override func insertText(_ insertString: Any) { onKeyDown?() }
+}
+
 @MainActor
 final class SystemInputSourceAPI: InputSourceAPI {
     func selectableSources() -> [InputSource] {
@@ -14,12 +28,39 @@ final class SystemInputSourceAPI: InputSourceAPI {
                   let name = stringProp(src, kTISPropertyLocalizedName) else { return nil }
             let lang = languages(src).first ?? ""
             let isCJKV = lang == "ko" || lang == "ja" || lang == "vi" || lang.hasPrefix("zh")
-            return InputSource(id: id, name: name, isCJKV: isCJKV)
+            return InputSource(id: id, name: name, isCJKV: isCJKV, isKorean: lang == "ko")
         }
     }
 
-    /// CJKV 커밋: 작은 창을 띄워 잠깐 key/active가 됐다가 숨어서 이전 앱으로 포커스를
-    /// 돌려준다. 이 포커스 사이클이 있어야 백그라운드에서의 CJKV 전환이 실제 적용된다.
+    /// Finder는 activate 커밋을 하면 인라인 이름바꾸기가 닫힌다(v1.0.1, dev14에서 확인).
+    private func frontmostIsFinder() -> Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder"
+    }
+
+    private func makeCommitPanel(nonactivating: Bool) -> CommitPanel {
+        // 화면 밖에 둔다. 화면 안에 있으면 IME 변환 후보창이 이 창 위치에 딸려온다.
+        var style: NSWindow.StyleMask = [.titled] // titled가 아니면 key가 될 수 없음
+        if nonactivating { style.insert(.nonactivatingPanel) }
+        let panel = CommitPanel(
+            contentRect: NSRect(x: -300, y: -300, width: 3, height: 3),
+            styleMask: style, backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        panel.titlebarAppearsTransparent = true
+        panel.level = .screenSaver
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        // 커밋 창 동안 패널이 key라서 타이핑을 삼킬 수 있다.
+        // 키가 들어오면 즉시 물러나 삼킴 구간을 최소화하고 로그로 빈도를 계측한다.
+        panel.onKeyDown = { [weak panel] in
+            dbg("commit: 키 입력 감지 → 커밋 조기 종료 (입력 삼킴 가능성)")
+            panel?.orderOut(nil)
+        }
+        return panel
+    }
+
+    /// CJKV 커밋 (dev17 = v1.0.0/macism 방식): 작은 창을 띄우고 우리 앱을 잠깐 활성화했다가
+    /// 원래 앱으로 돌려준다. 사용자 앱이 비활성화됐다 돌아오며 입력 세션이 새로 만들어지는
+    /// 것이 목적. key만 가져오는 nonactivating 패널(v1.0.1~v1.0.2)은 이 효과가 없었다.
+    /// 예외: Finder는 nonactivating 패널 — activate하면 이름바꾸기가 닫힌다.
     @discardableResult
     func commitSelection(waitMS: UInt64) async -> Bool {
         guard waitMS > 0 else { return true } // 0 = 커밋 기능 자체를 끈 것 → 생략 아님
@@ -29,23 +70,37 @@ final class SystemInputSourceAPI: InputSourceAPI {
             dbg("commit: skip (panel open)")
             return false
         }
-        dbg("commit: key-only 커밋 실행 (\(waitMS)ms)")
-        // nonactivating 패널(Spotlight과 같은 방식): 사용자 앱을 비활성화하지 않고
-        // key 상태만 잠깐 가져와 IME 세션을 재초기화시킨다. 앱 활성 상태가 유지되므로
-        // 인라인 이름변경 같은 포커스 민감 UI가 닫히지 않는다.
-        let screen = NSScreen.main?.visibleFrame ?? .zero
-        let panel = NSPanel(
-            contentRect: NSRect(x: screen.maxX - 11, y: screen.minY + 8, width: 3, height: 3),
-            styleMask: [.titled, .nonactivatingPanel], // titled가 아니면 key가 될 수 없음
-            backing: .buffered, defer: false)
-        panel.isReleasedWhenClosed = false
-        panel.titlebarAppearsTransparent = true
-        panel.level = .screenSaver
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        // 소요 시간 계측: 창 띄우기부터 복귀까지가 waitMS를 크게 넘기면 WindowServer나
+        // CursorUIViewService 같은 시스템 쪽이 막혀 있다는 신호다 (2026-10-18 멈춤 조사).
+        let started = ContinuousClock.now
+        if frontmostIsFinder() {
+            dbg("commit: Finder → key-only 커밋 (\(waitMS)ms)")
+            let panel = makeCommitPanel(nonactivating: true)
+            panel.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(nanoseconds: waitMS * 1_000_000)
+            panel.orderOut(nil) // key는 이전 key window로 자동 복귀
+            dbg("commit: 완료 \(elapsedMS(since: started))ms (목표 \(waitMS)ms)")
+            return true
+        }
+        let previous = NSWorkspace.shared.frontmostApplication
+        dbg("commit: activate 커밋 (\(waitMS)ms, 복귀=\(previous?.localizedName ?? "?"))")
+        let panel = makeCommitPanel(nonactivating: false)
         panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let activated = elapsedMS(since: started)
         try? await Task.sleep(nanoseconds: waitMS * 1_000_000)
-        panel.orderOut(nil) // key는 이전 key window로 자동 복귀
+        panel.orderOut(nil)
+        // macism은 프로세스 종료로 복귀시킨다. 우리는 상주하므로 명시적으로 돌려준다(dev14 방식).
+        if let previous, previous.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previous.activate()
+        }
+        dbg("commit: 완료 \(elapsedMS(since: started))ms (activate \(activated)ms, 목표 \(waitMS)ms)")
         return true
+    }
+
+    private func elapsedMS(since start: ContinuousClock.Instant) -> Int64 {
+        let d = ContinuousClock.now - start
+        return d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000
     }
 
     func currentSourceID() -> String? {

@@ -1,4 +1,5 @@
 import SwiftUI
+import Carbon
 import UserNotifications
 
 @MainActor
@@ -12,6 +13,13 @@ final class AppState: ObservableObject {
     @Published var showHUD: Bool {
         didSet { settings.showHUD = showHUD }
     }
+    /// 커밋 창이 떠 있는 시간(ms). 설정 화면 슬라이더로 조정, 범위는 Settings.delayRange.
+    @Published var commitDelayMS: Double {
+        didSet {
+            settings.verifyDelayMS = UInt64(commitDelayMS)
+            switcher.verifyDelayMS = settings.verifyDelayMS
+        }
+    }
 
     /// 매핑은 있는데 시스템에서 제거된 소스 ID들 (설정 화면에 "소스 없음"으로 표시)
     var orphanedMappings: [String] {
@@ -24,22 +32,37 @@ final class AppState: ObservableObject {
     private let api = SystemInputSourceAPI()
     private let settings = Settings()
     private let hotkeys = HotkeyManager()
-    private lazy var switcher = Switcher(api: api, verifyDelayMS: settings.verifyDelayMS)
+    private lazy var switcher: Switcher = {
+        let s = Switcher(api: api, verifyDelayMS: settings.verifyDelayMS)
+        s.focusCommitEnabled = settings.focusCommitEnabled
+        return s
+    }()
     private var switchTask: Task<Void, Never>?
     private var activationObserver: NSObjectProtocol?
     /// 이 시각 전까지 규칙 발동 중지. 커밋 포커스 사이클(규칙 앱→자신→규칙 앱
     /// 재활성화, 수백 ms 내)이 규칙을 재발동해 루프가 되는 것을 막는다.
     // ponytail: 시간 창 방식 — 전환 직후 1초 내 규칙 앱 진입은 자동 전환 안 됨
     private var suppressRulesUntil = Date.distantPast
+    // 입력소스 변경 알림 분류용: 우리가 마지막으로 요청한 전환
+    private var sourceChangeObserver: NSObjectProtocol?
+    private var lastSwitchTarget: String?
+    private var lastSwitchAt = Date.distantPast
+    private var lastSwitchWasRepress = false
+    private var lastLoggedSourceID: String?
 
     init() {
         showHUD = Settings().showHUD
+        commitDelayMS = Double(Settings().verifyDelayMS)
         sources = api.selectableSources()
         mappings = settings.mappings
         appRules = settings.appRules
         currentID = api.currentSourceID()
+        // 어떤 설정으로 모은 기록인지 로그 자체에 남긴다 (사후 분석에서 모드 혼동 방지)
+        dbg("mode: v\(appVersion) modwait=\(settings.waitForModifierRelease) "
+            + "focusCommit=\(settings.focusCommitEnabled) delay=\(settings.verifyDelayMS)ms")
         registerAll()
         observeAppActivations()
+        observeSourceChanges()
         scheduleUpdateChecks()
     }
 
@@ -91,6 +114,30 @@ final class AppState: ObservableObject {
         try? await center.add(request)
     }
 
+    /// macOS의 입력소스 변경 알림을 구독해 모든 변경을 기록한다. 우리 전환뿐 아니라
+    /// 시스템 단축키·Caps Lock·메뉴 클릭·다른 앱이 바꾼 것도 잡힌다. 지금까지 로그에는
+    /// 우리가 바꾼 것만 남아, 전환 직후 누군가 되돌리는 경우를 볼 수 없었다.
+    /// (HangulSync의 감지 방식에서 착안)
+    private func observeSourceChanges() {
+        sourceChangeObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.sourceDidChange() }
+        }
+    }
+
+    private func sourceDidChange() {
+        // 같은 변경에 알림이 두 번 오는 경우가 있어 직전 기록과 같으면 건너뛴다
+        guard let id = api.currentSourceID(), id != lastLoggedSourceID else { return }
+        lastLoggedSourceID = id
+        currentID = id
+        let tag = classifyChange(newID: id, lastTarget: lastSwitchTarget,
+                                 lastSwitchAt: lastSwitchAt, recovering: lastSwitchWasRepress)
+        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+        dbg("changed: \(id) [\(tag)] app=\(app)")
+    }
+
     private func observeAppActivations() {
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -112,13 +159,26 @@ final class AppState: ObservableObject {
             return
         }
         dbg("autoSwitch: \(bundleID) → \(rule.sourceID)")
-        performSwitch(to: rule.sourceID)
+        performSwitch(to: rule.sourceID, viaHotkey: false)
     }
 
-    private func performSwitch(to sourceID: String) {
+    private func performSwitch(to sourceID: String, viaHotkey: Bool) {
+        // 모든 전환에 앱 이름을 남긴다 — 어느 앱에서 desync가 나는지 사후 분석용
+        dbg("app=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")")
         suppressRulesUntil = Date().addingTimeInterval(1.0)
         switchTask?.cancel()
         switchTask = Task { @MainActor in
+            if viaHotkey, settings.waitForModifierRelease {
+                let held: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+                let r = await waitForModifierRelease(
+                    isDown: { !NSEvent.modifierFlags.intersection(held).isEmpty })
+                if Task.isCancelled { return }
+                dbg("modwait: \(r.waitedMS)ms\(r.timedOut ? " (timeout)" : "")")
+            }
+            lastSwitchTarget = sourceID
+            lastSwitchAt = Date()
+            lastSwitchWasRepress = (api.currentSourceID() == sourceID)
+            suppressRulesUntil = Date().addingTimeInterval(1.0)
             let ok = await switcher.switchTo(sourceID)
             if !Task.isCancelled {
                 lastSwitchFailed = !ok
@@ -138,7 +198,7 @@ final class AppState: ObservableObject {
             // 시스템에서 제거된 소스의 매핑은 무시 (스펙: 에러 처리)
             guard sources.contains(where: { $0.id == sourceID }) else { continue }
             let ok = hotkeys.register(combo) { [weak self] in
-                self?.performSwitch(to: sourceID)
+                self?.performSwitch(to: sourceID, viaHotkey: true)
             }
             if !ok { failedRegistrations.insert(sourceID) }
         }
