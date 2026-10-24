@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-VERSION="${VERSION:-1.0.2}"
+VERSION="${VERSION:-1.1.0}"
 swift build -c release
 APP=build/InputSwitcher.app
 rm -rf "$APP"
